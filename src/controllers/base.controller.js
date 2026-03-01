@@ -5,7 +5,7 @@ class BaseController {
 
     async getAll(req, res) {
         try {
-            const items = await this.service.getAll();
+            const items = await this.service.getAll(req.query);
             return res.json(items);
         } catch (error) {
             return res.status(500).json({ error: error.message });
