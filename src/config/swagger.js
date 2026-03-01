@@ -44,7 +44,6 @@ const rawSchemas = {
         "_id": "string",
         "nombre": "string",
         "codigo": "string",
-        "nivel": "string"
     },
     "MODULOS": {
         "_id": "string",
