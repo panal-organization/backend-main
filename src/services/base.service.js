@@ -6,9 +6,17 @@ class BaseService {
     }
 
     async getAll(filters = {}) {
+        let populateFields = [];
+        if (filters.populate) {
+            populateFields = filters.populate.split(',').map(p => p.trim());
+            delete filters.populate;
+        }
+
         const mongoFilters = {};
 
         Object.keys(filters).forEach(key => {
+            if (key === 'populate') return; // Ensure it's not included in filters
+
             let value = filters[key];
 
             if (value === undefined || value === '') return;
@@ -23,18 +31,26 @@ class BaseService {
             }
 
             //ObjectId
-            else if (mongoose.Types.ObjectId.isValid(value)) {
+            else if (typeof value === 'string' && mongoose.Types.ObjectId.isValid(value)) {
                 value = new mongoose.Types.ObjectId(value);
             }
 
             mongoFilters[key] = value;
         });
 
-        return await this.model.find(mongoFilters);
+        const query = this.model.find(mongoFilters);
+        populateFields.forEach(field => query.populate(field));
+
+        return await query;
     }
 
-    async get(id) {
-        return await this.model.findById(id);
+    async get(id, populate = '') {
+        const query = this.model.findById(id);
+        if (populate) {
+            const populateFields = populate.split(',').map(p => p.trim());
+            populateFields.forEach(field => query.populate(field));
+        }
+        return await query;
     }
 
     async create(entity) {

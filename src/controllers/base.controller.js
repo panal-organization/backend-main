@@ -14,8 +14,9 @@ class BaseController {
 
     async get(req, res) {
         const { id } = req.params;
+        const { populate } = req.query;
         try {
-            const item = await this.service.get(id);
+            const item = await this.service.get(id, populate);
             if (!item) return res.status(404).json({ message: 'No encontrado' });
             return res.json(item);
         } catch (error) {
