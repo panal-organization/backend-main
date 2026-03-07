@@ -8,7 +8,8 @@ const UsuariosSchema = new Schema({
     contrasena: { type: String, required: true, select: false },
     estatus: { type: Boolean, default: true },
     rol_id: { type: Schema.Types.ObjectId, ref: 'ROLES' },
-    foto: { type: String, default: 'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png' }
+    foto: { type: String, default: 'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png' },
+    plan_id: { type: Schema.Types.ObjectId, ref: 'PLANES' },
 }, {
     timestamps: true,
     versionKey: false
