@@ -48,8 +48,19 @@ const deleteFile = async (req, res) => {
     try {
         const { id } = req.params;
 
-        // Buscar el archivo en la base de datos
-        const archivo = await Archivo.findById(id);
+        // Buscar el archivo por ID normal. Si no es válido (porque se mandó el de usuario), 
+        // fallará el cast pero lo atrapamos para buscar por usuario_id.
+        let archivo;
+        try {
+            archivo = await Archivo.findById(id);
+        } catch (err) {
+            archivo = null;
+        }
+
+        // Si no se encontró por ID de archivo, buscar si este 'id' en realidad pertenece a una foto de perfil de usuario
+        if (!archivo) {
+            archivo = await Archivo.findOne({ usuario_id: id, tipo: 'perfil' });
+        }
 
         if (!archivo) {
             return res.status(404).json({ error: 'Archivo no encontrado' });
@@ -69,7 +80,7 @@ const deleteFile = async (req, res) => {
         }
 
         // Eliminar el documento de la base de datos
-        await Archivo.findByIdAndDelete(id);
+        await Archivo.findByIdAndDelete(archivo._id);
 
         res.json({ message: 'Archivo eliminado correctamente' });
     } catch (error) {
@@ -86,8 +97,17 @@ const updateFile = async (req, res) => {
         const { id } = req.params;
         const { tipo } = req.body;
 
-        // Buscar el archivo anterior en la base de datos
-        const archivoAnterior = await Archivo.findById(id);
+        let archivoAnterior;
+        try {
+            archivoAnterior = await Archivo.findById(id);
+        } catch (err) {
+            archivoAnterior = null;
+        }
+
+        // Si no lo encuentra por ID, o se mandó el ID de usuario desde Flutter para el "perfil", lo buscamos:
+        if (!archivoAnterior && (tipo === 'perfil' || !tipo)) {
+            archivoAnterior = await Archivo.findOne({ usuario_id: id, tipo: 'perfil' });
+        }
 
         if (!archivoAnterior) {
             // Eliminar el archivo temporal recién subido
@@ -107,7 +127,7 @@ const updateFile = async (req, res) => {
         const nuevoTipo = tipo || archivoAnterior.tipo;
 
         // Actualizar los datos del archivo en la base de datos
-        const archivoActualizado = await Archivo.findByIdAndUpdate(id, {
+        const archivoActualizado = await Archivo.findByIdAndUpdate(archivoAnterior._id, {
             nombre_original: req.file.originalname,
             nombre_servidor: req.file.filename,
             mimetype: req.file.mimetype,
