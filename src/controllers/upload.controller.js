@@ -44,14 +44,15 @@ const uploadFile = async (req, res) => {
     }
 };
 
-const deleteFile = async (req, res) => {
+const DEFAULT_PROFILE = 'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png';
 
+const deleteFile = async (req, res) => {
     try {
 
-        const { usuario_id } = req.params;
+        const { id } = req.params;
 
         const archivo = await Archivo.findOne({
-            usuario_id: usuario_id,
+            usuario_id: id,
             tipo: 'perfil'
         });
 
@@ -59,6 +60,7 @@ const deleteFile = async (req, res) => {
             return res.status(404).json({ error: 'Archivo no encontrado' });
         }
 
+        // eliminar archivo del disco
         const filePath = path.join(
             __dirname,
             '../../uploads',
@@ -69,11 +71,17 @@ const deleteFile = async (req, res) => {
             await fs.promises.unlink(filePath);
         }
 
+        // eliminar registro archivo
         await Archivo.findByIdAndDelete(archivo._id);
 
-        await Usuario.findByIdAndUpdate(usuario_id, { foto: null });
+        // restaurar foto por defecto
+        await Usuario.findByIdAndUpdate(id, {
+            foto: DEFAULT_PROFILE
+        });
 
-        res.json({ message: 'Foto eliminada correctamente' });
+        res.json({
+            message: 'Foto eliminada correctamente'
+        });
 
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -81,76 +89,35 @@ const deleteFile = async (req, res) => {
 };
 
 const updateFile = async (req, res) => {
-    if (!req.file) {
-        return res.status(400).json({ error: 'No se subió ningún archivo nuevo' });
-    }
 
     try {
 
-        const { usuario_id, tipo = 'perfil' } = req.body;
-
-        if (!usuario_id) {
-            return res.status(400).json({ error: 'usuario_id requerido' });
-        }
+        const { id } = req.params;
 
         const archivoAnterior = await Archivo.findOne({
-            usuario_id: usuario_id,
-            tipo: tipo
+            usuario_id: id,
+            tipo: 'perfil'
         });
 
-        // eliminar archivo anterior
         if (archivoAnterior) {
 
-            const oldFilePath = path.join(
+            const oldPath = path.join(
                 __dirname,
                 '../../uploads',
                 archivoAnterior.nombre_servidor
             );
 
-            if (fs.existsSync(oldFilePath)) {
-                await fs.promises.unlink(oldFilePath);
+            if (fs.existsSync(oldPath)) {
+                await fs.promises.unlink(oldPath);
             }
+
+            await Archivo.findByIdAndDelete(archivoAnterior._id);
         }
 
-        const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+        req.body.usuario_id = id;
+        req.body.tipo = 'perfil';
 
-        let archivoActualizado;
-
-        if (archivoAnterior) {
-
-            archivoActualizado = await Archivo.findByIdAndUpdate(
-                archivoAnterior._id,
-                {
-                    nombre_original: req.file.originalname,
-                    nombre_servidor: req.file.filename,
-                    mimetype: req.file.mimetype,
-                    size: req.file.size,
-                    url: fileUrl
-                },
-                { new: true }
-            );
-
-        } else {
-
-            archivoActualizado = new Archivo({
-                nombre_original: req.file.originalname,
-                nombre_servidor: req.file.filename,
-                mimetype: req.file.mimetype,
-                size: req.file.size,
-                url: fileUrl,
-                usuario_id: usuario_id,
-                tipo: tipo
-            });
-
-            await archivoActualizado.save();
-        }
-
-        await Usuario.findByIdAndUpdate(usuario_id, { foto: fileUrl });
-
-        res.json({
-            message: 'Foto actualizada correctamente',
-            archivo: archivoActualizado
-        });
+        return uploadFile(req, res);
 
     } catch (error) {
         res.status(500).json({ error: error.message });
