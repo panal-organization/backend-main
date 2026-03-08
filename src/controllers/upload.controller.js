@@ -45,44 +45,36 @@ const uploadFile = async (req, res) => {
 };
 
 const deleteFile = async (req, res) => {
+
     try {
-        const { id } = req.params;
 
-        // Buscar el archivo por ID normal. Si no es válido (porque se mandó el de usuario), 
-        // fallará el cast pero lo atrapamos para buscar por usuario_id.
-        let archivo;
-        try {
-            archivo = await Archivo.findById(id);
-        } catch (err) {
-            archivo = null;
-        }
+        const { usuario_id } = req.params;
 
-        // Si no se encontró por ID de archivo, buscar si este 'id' en realidad pertenece a una foto de perfil de usuario
-        if (!archivo) {
-            archivo = await Archivo.findOne({ usuario_id: id, tipo: 'perfil' });
-        }
+        const archivo = await Archivo.findOne({
+            usuario_id: usuario_id,
+            tipo: 'perfil'
+        });
 
         if (!archivo) {
             return res.status(404).json({ error: 'Archivo no encontrado' });
         }
 
-        // Ruta del archivo en el sistema de archivos
-        const filePath = path.join(__dirname, '../../uploads', archivo.nombre_servidor);
+        const filePath = path.join(
+            __dirname,
+            '../../uploads',
+            archivo.nombre_servidor
+        );
 
-        // Eliminar del sistema de archivos usando fs
         if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
+            await fs.promises.unlink(filePath);
         }
 
-        // Si era foto de perfil, quitar la foto del usuario
-        if (archivo.tipo === 'perfil' && archivo.usuario_id) {
-            await Usuario.findByIdAndUpdate(archivo.usuario_id, { foto: null });
-        }
-
-        // Eliminar el documento de la base de datos
         await Archivo.findByIdAndDelete(archivo._id);
 
-        res.json({ message: 'Archivo eliminado correctamente' });
+        await Usuario.findByIdAndUpdate(usuario_id, { foto: null });
+
+        res.json({ message: 'Foto eliminada correctamente' });
+
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -94,57 +86,72 @@ const updateFile = async (req, res) => {
     }
 
     try {
-        const { id } = req.params;
-        const { tipo } = req.body;
 
-        let archivoAnterior;
-        try {
-            archivoAnterior = await Archivo.findById(id);
-        } catch (err) {
-            archivoAnterior = null;
+        const { usuario_id, tipo = 'perfil' } = req.body;
+
+        if (!usuario_id) {
+            return res.status(400).json({ error: 'usuario_id requerido' });
         }
 
-        // Si no lo encuentra por ID, o se mandó el ID de usuario desde Flutter para el "perfil", lo buscamos:
-        if (!archivoAnterior && (tipo === 'perfil' || !tipo)) {
-            archivoAnterior = await Archivo.findOne({ usuario_id: id, tipo: 'perfil' });
-        }
+        const archivoAnterior = await Archivo.findOne({
+            usuario_id: usuario_id,
+            tipo: tipo
+        });
 
-        if (!archivoAnterior) {
-            // Eliminar el archivo temporal recién subido
-            const tempFilePath = path.join(__dirname, '../../uploads', req.file.filename);
-            if (fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath);
+        // eliminar archivo anterior
+        if (archivoAnterior) {
 
-            return res.status(404).json({ error: 'Archivo anterior no encontrado para actualizar' });
-        }
+            const oldFilePath = path.join(
+                __dirname,
+                '../../uploads',
+                archivoAnterior.nombre_servidor
+            );
 
-        // Eliminar archivo anterior del sistema de archivos
-        const oldFilePath = path.join(__dirname, '../../uploads', archivoAnterior.nombre_servidor);
-        if (fs.existsSync(oldFilePath)) {
-            fs.unlinkSync(oldFilePath);
+            if (fs.existsSync(oldFilePath)) {
+                await fs.promises.unlink(oldFilePath);
+            }
         }
 
         const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
-        const nuevoTipo = tipo || archivoAnterior.tipo;
 
-        // Actualizar los datos del archivo en la base de datos
-        const archivoActualizado = await Archivo.findByIdAndUpdate(archivoAnterior._id, {
-            nombre_original: req.file.originalname,
-            nombre_servidor: req.file.filename,
-            mimetype: req.file.mimetype,
-            size: req.file.size,
-            url: fileUrl,
-            tipo: nuevoTipo
-        }, { new: true });
+        let archivoActualizado;
 
-        // Si el tipo es perfil, actualizar la URL en el usuario
-        if (nuevoTipo === 'perfil' && archivoActualizado.usuario_id) {
-            await Usuario.findByIdAndUpdate(archivoActualizado.usuario_id, { foto: fileUrl });
+        if (archivoAnterior) {
+
+            archivoActualizado = await Archivo.findByIdAndUpdate(
+                archivoAnterior._id,
+                {
+                    nombre_original: req.file.originalname,
+                    nombre_servidor: req.file.filename,
+                    mimetype: req.file.mimetype,
+                    size: req.file.size,
+                    url: fileUrl
+                },
+                { new: true }
+            );
+
+        } else {
+
+            archivoActualizado = new Archivo({
+                nombre_original: req.file.originalname,
+                nombre_servidor: req.file.filename,
+                mimetype: req.file.mimetype,
+                size: req.file.size,
+                url: fileUrl,
+                usuario_id: usuario_id,
+                tipo: tipo
+            });
+
+            await archivoActualizado.save();
         }
 
+        await Usuario.findByIdAndUpdate(usuario_id, { foto: fileUrl });
+
         res.json({
-            message: 'Archivo actualizado correctamente',
+            message: 'Foto actualizada correctamente',
             archivo: archivoActualizado
         });
+
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
