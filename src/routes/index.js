@@ -11,6 +11,8 @@ router.post('/auth/sign-in', AuthController.signIn.bind(AuthController));
 const uploadMiddleware = require('../middlewares/upload.middleware');
 const uploadController = require('../controllers/upload.controller');
 router.post('/upload', uploadMiddleware.single('file'), uploadController.uploadFile);
+router.delete('/upload/:id', uploadController.deleteFile);
+router.put('/upload/:id', uploadMiddleware.single('file'), uploadController.updateFile);
 
 // // Middleware to protect subsequent routes
 // router.use(require('../middlewares/auth.middleware'));

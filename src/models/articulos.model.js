@@ -3,6 +3,7 @@ const { Schema } = mongoose;
 
 const ArticuloSchema = new Schema({
     nombre: { type: String, required: true },
+    almacen_id: { type: Schema.Types.ObjectId, ref: 'ALMACENES' },
     workspace_id: { type: Schema.Types.ObjectId, ref: 'WORKSPACES', required: true }
 }, {
     timestamps: true,
