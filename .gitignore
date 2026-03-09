@@ -141,3 +141,6 @@ vite.config.ts.timestamp-*
 
 # Ignore all .pem files
 *.pem
+
+# Ignore uploads folder
+uploads/

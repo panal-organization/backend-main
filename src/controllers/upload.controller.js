@@ -17,7 +17,7 @@ const uploadFile = async (req, res) => {
 
         const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
 
-        // 1. Guardar metadatos en la colección de ARCHIVOS
+        // 1. Guardar metadatos en la colección de ARCHIVOS 
         const nuevoArchivo = new Archivo({
             nombre_original: req.file.originalname,
             nombre_servidor: req.file.filename,
@@ -64,7 +64,7 @@ const deleteFile = async (req, res) => {
         const filePath = path.join(
             __dirname,
             '../../uploads',
-            archivo.nombre_servidor
+            archivo.nombre_original
         );
 
         if (fs.existsSync(filePath)) {
@@ -104,7 +104,7 @@ const updateFile = async (req, res) => {
             const oldPath = path.join(
                 __dirname,
                 '../../uploads',
-                archivoAnterior.nombre_servidor
+                archivoAnterior.nombre_original
             );
 
             if (fs.existsSync(oldPath)) {
