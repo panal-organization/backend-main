@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const { Schema } = mongoose;
 
 const TicketSchema = new Schema({
+    foto: { type: String, default: null },
     descripcion: { type: String, required: true },
     estado_id: { type: Schema.Types.ObjectId, ref: 'ESTADO_TICKETS' },
     created_by: { type: Schema.Types.ObjectId, ref: 'USUARIOS' },

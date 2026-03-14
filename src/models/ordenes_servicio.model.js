@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const { Schema } = mongoose;
 
 const OrdenServicioSchema = new Schema({
+    foto: { type: String, default: null },
     descripcion: { type: String, required: true },
     estado_id: { type: Schema.Types.ObjectId, ref: 'ESTADO_ORDEN' },
     created_by: { type: Schema.Types.ObjectId, ref: 'USUARIOS' },
