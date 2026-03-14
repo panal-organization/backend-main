@@ -4,7 +4,7 @@ const { Schema } = mongoose;
 const OrdenServicioSchema = new Schema({
     foto: { type: String, default: null },
     descripcion: { type: String, required: true },
-    estado_id: { type: Schema.Types.ObjectId, ref: 'ESTADO_ORDEN' },
+    estado: { type: String, enum: ['PENDIENTE', 'EN_PROGRESO', 'RESUELTO'], default: 'PENDIENTE' },
     created_by: { type: Schema.Types.ObjectId, ref: 'USUARIOS' },
     articulo_id: { type: Schema.Types.ObjectId, ref: 'ARTICULOS' },
     tipo_id: { type: Schema.Types.ObjectId, ref: 'TIPO_ORDENES' },
