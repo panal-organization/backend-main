@@ -16,4 +16,22 @@ const WorkspaceSchema = new Schema({
     versionKey: false
 });
 
+// Hook para crear automáticamente la relación con el admin al crear el workspace
+WorkspaceSchema.post('save', async function(doc) {
+    if (doc.admin_id) {
+        const WorkspacesUsuarios = mongoose.model('WORKSPACES_USUARIOS');
+        const existing = await WorkspacesUsuarios.findOne({
+            workspace_id: doc._id,
+            usuario_id: doc.admin_id
+        });
+        
+        if (!existing) {
+            await WorkspacesUsuarios.create({
+                workspace_id: doc._id,
+                usuario_id: doc.admin_id
+            });
+        }
+    }
+});
+
 module.exports = mongoose.model('WORKSPACES', WorkspaceSchema);

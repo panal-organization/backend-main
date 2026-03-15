@@ -306,6 +306,51 @@ paths['/api/auth/sign-up'] = {
     }
 };
 
+paths['/api/workspaces/join-by-code'] = {
+    post: {
+        tags: ['WORKSPACES'],
+        summary: 'Join a workspace by its unique code',
+        security: [{ BearerAuth: [] }],
+        requestBody: {
+            content: {
+                'application/json': {
+                    schema: {
+                        type: 'object',
+                        properties: {
+                            codigo: { type: 'string' }
+                        },
+                        required: ['codigo']
+                    }
+                }
+            }
+        },
+        responses: {
+            200: {
+                description: 'Success',
+                content: {
+                    'application/json': {
+                        schema: {
+                            type: 'object',
+                            properties: {
+                                message: { type: 'string' },
+                                workspace: {
+                                    type: 'object',
+                                    properties: {
+                                        _id: { type: 'string' },
+                                        nombre: { type: 'string' }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            400: { description: 'Bad Request / Already a member' },
+            404: { description: 'Code not found' }
+        }
+    }
+};
+
 paths['/api/upload'] = {
     post: {
         tags: ['Files'],

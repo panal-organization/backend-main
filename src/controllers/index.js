@@ -27,7 +27,7 @@ module.exports = {
     UsuariosController: new BaseController(UsuariosService),
     RolesController: new BaseController(RolesService),
     ModulosController: new BaseController(ModulosService),
-    WorkspacesController: new BaseController(WorkspacesService),
+    WorkspacesController: require('./workspaces.controller'),
     PlanController: new BaseController(PlanService),
     TipoOrdenesController: new BaseController(TipoOrdenesService),
     OrdenesServicioController: new BaseController(OrdenesServicioService),

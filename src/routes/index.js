@@ -2,6 +2,7 @@ const { Router } = require('express');
 const router = Router();
 const controllers = require('../controllers');
 const AuthController = require('../controllers/auth.controller');
+// const authMiddleware = require('../middlewares/auth.middleware');
 
 // Auth Routes
 router.post('/auth/sign-up', AuthController.signUp.bind(AuthController));
@@ -14,8 +15,8 @@ router.post('/upload', uploadMiddleware.single('file'), uploadController.uploadF
 router.delete('/upload/:id', uploadController.deleteFile);
 router.put('/upload/:id', uploadMiddleware.single('file'), uploadController.updateFile);
 
-// // Middleware to protect subsequent routes
-// router.use(require('../middlewares/auth.middleware'));
+// Workspace Custom Routes
+router.post('/workspaces/join-by-code', controllers.WorkspacesController.joinByCode.bind(controllers.WorkspacesController));
 
 // Mapping controller names to route paths
 const routeMap = {

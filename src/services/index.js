@@ -7,7 +7,7 @@ module.exports = {
     UsuariosService: new BaseService(require('../models/usuarios.model')),
     RolesService: new BaseService(require('../models/roles.model')),
     ModulosService: new BaseService(require('../models/modulos.model')),
-    WorkspacesService: new BaseService(require('../models/workspaces.model')),
+    WorkspacesService: require('./workspaces.service'),
     PlanService: new BaseService(require('../models/plan.model')),
     TipoOrdenesService: new BaseService(require('../models/tipo_ordenes.model')),
     OrdenesServicioService: new BaseService(require('../models/ordenes_servicio.model')),

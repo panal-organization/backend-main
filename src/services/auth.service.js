@@ -23,19 +23,12 @@ class AuthService {
         const newUser = new Usuarios(userData);
         await newUser.save();
 
-        // Crear workspace por defecto
+        // Crear workspace por defecto (la relación se crea automáticamente vía hook en el modelo)
         const defaultWorkspace = new Workspaces({
             nombre: `Espacio Personal`,
             admin_id: newUser._id
         });
         await defaultWorkspace.save();
-
-        // Agregar al usuario al workspace por defecto
-        const workspaceUsuario = new WorkspacesUsuarios({
-            workspace_id: defaultWorkspace._id,
-            usuario_id: newUser._id
-        });
-        await workspaceUsuario.save();
 
         // Return sanitized user
         const userResponse = {
