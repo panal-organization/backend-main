@@ -2,6 +2,9 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const { Schema } = mongoose;
 
+//Plan gratis: 69a3de4281a5be4cb1bd8bc0
+//Plan pro: 69a3df3381a5be4cb1bd8bc3
+
 const UsuariosSchema = new Schema({
     nombre: { type: String, required: true },
     correo: { type: String, required: true, unique: true },
@@ -9,7 +12,7 @@ const UsuariosSchema = new Schema({
     estatus: { type: Boolean, default: true },
     rol_id: { type: Schema.Types.ObjectId, ref: 'ROLES' },
     foto: { type: String, default: 'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png' },
-    plan_id: { type: Schema.Types.ObjectId, ref: 'PLANES' },
+    plan_id: { type: Schema.Types.ObjectId, ref: 'PLANES', default: '69a3de4281a5be4cb1bd8bc0' },
 }, {
     timestamps: true,
     versionKey: false

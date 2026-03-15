@@ -3,6 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const Usuarios = require('../models/usuarios.model');
+const Workspaces = require('../models/workspaces.model');
+const WorkspacesUsuarios = require('../models/workspaces_usuarios.model');
 
 const PRIV_KEY = fs.readFileSync(path.join(__dirname, '../config/id_rsa_priv.pem'), 'utf8');
 const PUB_KEY = fs.readFileSync(path.join(__dirname, '../config/id_rsa_pub.pem'), 'utf8');
@@ -20,6 +22,20 @@ class AuthService {
 
         const newUser = new Usuarios(userData);
         await newUser.save();
+
+        // Crear workspace por defecto
+        const defaultWorkspace = new Workspaces({
+            nombre: `Espacio Personal`,
+            admin_id: newUser._id
+        });
+        await defaultWorkspace.save();
+
+        // Agregar al usuario al workspace por defecto
+        const workspaceUsuario = new WorkspacesUsuarios({
+            workspace_id: defaultWorkspace._id,
+            usuario_id: newUser._id
+        });
+        await workspaceUsuario.save();
 
         // Return sanitized user
         const userResponse = {
