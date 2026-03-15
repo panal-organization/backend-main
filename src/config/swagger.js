@@ -56,6 +56,7 @@ const rawSchemas = {
         "_id": "string",
         "nombre": "string",
         "admin_id": "string",
+        "plan_id": "string",
         "created_at": "date",
         "is_deleted": "boolean"
     },
@@ -317,9 +318,10 @@ paths['/api/workspaces/join-by-code'] = {
                     schema: {
                         type: 'object',
                         properties: {
+                            usuario_id: { type: 'string' },
                             codigo: { type: 'string' }
                         },
-                        required: ['codigo']
+                        required: ['usuario_id', 'codigo']
                     }
                 }
             }

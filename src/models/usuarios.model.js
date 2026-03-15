@@ -29,4 +29,22 @@ UsuariosSchema.pre('save', async function () {
     }
 });
 
+// Sincronizar plan_id con sus workspaces si cambia
+UsuariosSchema.post('save', async function (doc) {
+    if (this._planChanged) {
+        await mongoose.model('WORKSPACES').updateMany(
+            { admin_id: doc._id },
+            { plan_id: doc.plan_id }
+        );
+    }
+});
+
+// Cargar estado previo antes de guardar
+UsuariosSchema.pre('save', function (next) {
+    if (this.isModified('plan_id')) {
+        this._planChanged = true;
+    }
+    next();
+});
+
 module.exports = mongoose.model('USUARIOS', UsuariosSchema);
