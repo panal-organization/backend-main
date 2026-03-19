@@ -21,6 +21,7 @@ const {
 } = require('../services');
 
 module.exports = {
+    AIController: require('./ai.controller'),
     EstadoTicketsController: new BaseController(EstadoTicketsService),
     EstadoOrdenController: new BaseController(EstadoOrdenService),
     TicketsController: new BaseController(TicketsService),

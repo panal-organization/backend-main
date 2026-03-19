@@ -1,6 +1,7 @@
 const BaseService = require('./base.service');
 
 module.exports = {
+    AIService: require('./ai.service'),
     EstadoTicketsService: new BaseService(require('../models/estado_tickets.model')),
     EstadoOrdenService: new BaseService(require('../models/estado_orden.model')),
     TicketsService: new BaseService(require('../models/tickets.model')),

@@ -2,6 +2,7 @@ const { Router } = require('express');
 const router = Router();
 const controllers = require('../controllers');
 const AuthController = require('../controllers/auth.controller');
+const aiRoutes = require('./ai.routes');
 // const authMiddleware = require('../middlewares/auth.middleware');
 
 // Auth Routes
@@ -17,6 +18,8 @@ router.put('/upload/:id', uploadMiddleware.single('file'), uploadController.upda
 
 // Workspace Custom Routes
 router.post('/workspaces/join-by-code', controllers.WorkspacesController.joinByCode.bind(controllers.WorkspacesController));
+
+router.use('/ai', aiRoutes);
 
 // Mapping controller names to route paths
 const routeMap = {

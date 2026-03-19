@@ -181,6 +181,56 @@ Object.entries(rawSchemas).forEach(([name, fields]) => {
     components.schemas[`${name}Input`] = { type: 'object', properties: inputProps };
 });
 
+components.schemas.AI_TICKET_DRAFT_REQUEST = {
+    type: 'object',
+    properties: {
+        text: {
+            type: 'string',
+            description: 'Texto libre para generar el borrador del ticket'
+        },
+        workspace_id: {
+            type: 'string',
+            description: 'ID del workspace (opcional). Si no se envia, el backend intenta resolverlo automaticamente'
+        }
+    },
+    required: ['text']
+};
+
+components.schemas.AI_TICKET_DRAFT_RESPONSE = {
+    type: 'object',
+    properties: {
+        titulo: { type: 'string' },
+        descripcion: { type: 'string' },
+        prioridad: {
+            type: 'string',
+            enum: ['BAJA', 'ALTA', 'CRITICA']
+        },
+        categoria: {
+            type: 'string',
+            enum: ['SOPORTE', 'MEJORA']
+        },
+        tags: {
+            type: 'array',
+            items: { type: 'string' }
+        },
+        confidence: {
+            type: 'number',
+            format: 'float',
+            minimum: 0,
+            maximum: 1
+        }
+    },
+    required: ['titulo', 'descripcion', 'prioridad', 'categoria', 'tags', 'confidence']
+};
+
+components.schemas.AI_ERROR_RESPONSE = {
+    type: 'object',
+    properties: {
+        message: { type: 'string' }
+    },
+    required: ['message']
+};
+
 // Build Paths
 const paths = {};
 Object.entries(routeMap).forEach(([route, schemaName]) => {
@@ -349,6 +399,116 @@ paths['/api/workspaces/join-by-code'] = {
             },
             400: { description: 'Bad Request / Already a member' },
             404: { description: 'Code not found' }
+        }
+    }
+};
+
+paths['/api/ai/tickets/draft'] = {
+    post: {
+        tags: ['AI'],
+        summary: 'Generate AI ticket draft',
+        description: 'Proxy endpoint that sends free text to the IA microservice and returns a validated ticket draft. Uses req.jwt.sub as user_id and resolves workspace_id automatically when omitted.',
+        security: [{ BearerAuth: [] }],
+        requestBody: {
+            required: true,
+            content: {
+                'application/json': {
+                    schema: { $ref: '#/components/schemas/AI_TICKET_DRAFT_REQUEST' },
+                    examples: {
+                        default: {
+                            summary: 'Minimal request',
+                            value: {
+                                text: 'La impresora del area de recepcion no funciona y urge porque nadie puede imprimir'
+                            }
+                        },
+                        withWorkspace: {
+                            summary: 'Request with explicit workspace',
+                            value: {
+                                text: 'La impresora del area de recepcion no funciona y urge porque nadie puede imprimir',
+                                workspace_id: '69a3e13581a5be4cb1bd8bc8'
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        responses: {
+            200: {
+                description: 'Ticket draft generated successfully',
+                content: {
+                    'application/json': {
+                        schema: { $ref: '#/components/schemas/AI_TICKET_DRAFT_RESPONSE' }
+                    }
+                }
+            },
+            400: {
+                description: 'Bad request (for example: text requerido)',
+                content: {
+                    'application/json': {
+                        schema: { $ref: '#/components/schemas/AI_ERROR_RESPONSE' },
+                        examples: {
+                            textRequired: {
+                                value: { message: 'El campo text es requerido' }
+                            }
+                        }
+                    }
+                }
+            },
+            401: {
+                description: 'Unauthorized (usuario no autenticado)',
+                content: {
+                    'application/json': {
+                        schema: { $ref: '#/components/schemas/AI_ERROR_RESPONSE' },
+                        examples: {
+                            unauthorized: {
+                                value: { message: 'Usuario no autenticado' }
+                            }
+                        }
+                    }
+                }
+            },
+            403: {
+                description: 'Forbidden (workspace_id invalido o no pertenece al usuario)',
+                content: {
+                    'application/json': {
+                        schema: { $ref: '#/components/schemas/AI_ERROR_RESPONSE' },
+                        examples: {
+                            workspaceForbidden: {
+                                value: { message: 'El usuario no pertenece al workspace indicado' }
+                            }
+                        }
+                    }
+                }
+            },
+            404: {
+                description: 'No workspace available for user',
+                content: {
+                    'application/json': {
+                        schema: { $ref: '#/components/schemas/AI_ERROR_RESPONSE' },
+                        examples: {
+                            workspaceNotFound: {
+                                value: { message: 'No se encontro un workspace para el usuario autenticado' }
+                            }
+                        }
+                    }
+                }
+            },
+            502: {
+                description: 'IA microservice error or connection error',
+                content: {
+                    'application/json': {
+                        schema: { $ref: '#/components/schemas/AI_ERROR_RESPONSE' },
+                        examples: {
+                            microserviceError: {
+                                value: { message: 'Error al generar el borrador con IA' }
+                            },
+                            connectionError: {
+                                value: { message: 'No se pudo conectar con el microservicio de IA' }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 };
