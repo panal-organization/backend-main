@@ -15,28 +15,34 @@ const ArticuloSchema = new Schema({
 // Recuenta los artículos activos de un almacén y actualiza su campo "registros"
 const updateAlmacenCount = async (almacen_id) => {
     if (!almacen_id) return;
-    const Almacen = mongoose.model('ALMACEN');
-    const count = await mongoose.model('ARTICULOS').countDocuments({
-        almacen_id,
-        estatus: true
-    });
-    await Almacen.findByIdAndUpdate(almacen_id, { registros: count });
+    try {
+        const Almacen = mongoose.model('ALMACEN');
+        const count = await mongoose.model('ARTICULOS').countDocuments({
+            almacen_id,
+            estatus: true
+        });
+        await Almacen.findByIdAndUpdate(almacen_id, { registros: count });
+    } catch (error) {
+        console.error('Error actualizando contador de almacén:', error);
+    }
 };
 
-// Antes de guardar: captura el estado anterior si cambia almacen_id o estatus
-ArticuloSchema.pre('save', async function (next) {
+// Antes de guardar: captura el estado anterior (sin parámetro next en async)
+ArticuloSchema.pre('save', async function () {
     if (!this.isNew && (this.isModified('almacen_id') || this.isModified('estatus'))) {
-        const oldDoc = await mongoose.model('ARTICULOS').findById(this._id);
-        if (oldDoc) {
-            this._oldAlmacenId = oldDoc.almacen_id;
+        try {
+            const oldDoc = await mongoose.model('ARTICULOS').findById(this._id);
+            if (oldDoc) {
+                this._oldAlmacenId = oldDoc.almacen_id;
+            }
+        } catch (error) {
+            console.error('Error en pre-save hook:', error);
         }
     }
-    next();
 });
 
 // Después de guardar (create / update)
 ArticuloSchema.post('save', async function (doc) {
-    // Siempre actualizar el almacén actual del artículo
     await updateAlmacenCount(doc.almacen_id);
 
     // Si cambió de almacén, actualizar también el almacén anterior
