@@ -12,9 +12,7 @@ const ArticuloSchema = new Schema({
     versionKey: false
 });
 
-const Articulo = mongoose.model('ARTICULOS', ArticuloSchema);
-
-// Función para actualizar el contador de registros en el almacén
+// Recuenta los artículos activos de un almacén y actualiza su campo "registros"
 const updateAlmacenCount = async (almacen_id) => {
     if (!almacen_id) return;
     const Almacen = mongoose.model('ALMACEN');
@@ -25,9 +23,9 @@ const updateAlmacenCount = async (almacen_id) => {
     await Almacen.findByIdAndUpdate(almacen_id, { registros: count });
 };
 
-// Hook antes de guardar para capturar el almacén anterior si cambia
+// Antes de guardar: captura el estado anterior si cambia almacen_id o estatus
 ArticuloSchema.pre('save', async function (next) {
-    if (!this.isNew && this.isModified('almacen_id')) {
+    if (!this.isNew && (this.isModified('almacen_id') || this.isModified('estatus'))) {
         const oldDoc = await mongoose.model('ARTICULOS').findById(this._id);
         if (oldDoc) {
             this._oldAlmacenId = oldDoc.almacen_id;
@@ -36,19 +34,24 @@ ArticuloSchema.pre('save', async function (next) {
     next();
 });
 
-// Hook después de guardar (create/update)
+// Después de guardar (create / update)
 ArticuloSchema.post('save', async function (doc) {
+    // Siempre actualizar el almacén actual del artículo
     await updateAlmacenCount(doc.almacen_id);
+
+    // Si cambió de almacén, actualizar también el almacén anterior
     if (this._oldAlmacenId && this._oldAlmacenId.toString() !== doc.almacen_id?.toString()) {
         await updateAlmacenCount(this._oldAlmacenId);
     }
 });
 
-// Hook después de eliminar
+// Después de eliminar
 ArticuloSchema.post('findOneAndDelete', async function (doc) {
     if (doc && doc.almacen_id) {
         await updateAlmacenCount(doc.almacen_id);
     }
 });
+
+const Articulo = mongoose.model('ARTICULOS', ArticuloSchema);
 
 module.exports = Articulo;
