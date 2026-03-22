@@ -12,39 +12,38 @@ const UsuariosSchema = new Schema({
     estatus: { type: Boolean, default: true },
     rol_id: { type: Schema.Types.ObjectId, ref: 'ROLES' },
     foto: { type: String, default: 'https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_960_720.png' },
-    plan_id: { type: Schema.Types.ObjectId, ref: 'PLANES', default: '69a3de4281a5be4cb1bd8bc0' },
+    plan_id: { type: Schema.Types.ObjectId, ref: 'PLAN', default: '69a3de4281a5be4cb1bd8bc0' },
 }, {
     timestamps: true,
     versionKey: false
 });
 
-// Hash password before saving
+// Pre-save hooks: handle password hashing and plan changes
 UsuariosSchema.pre('save', async function () {
-    if (!this.isModified('contrasena')) return;
-    try {
-        const salt = await bcrypt.genSalt(10);
-        this.contrasena = await bcrypt.hash(this.contrasena, salt);
-    } catch (err) {
-        throw err;
+    // Hash password before saving if it's modified
+    if (this.isModified('contrasena')) {
+        try {
+            const salt = await bcrypt.genSalt(10);
+            this.contrasena = await bcrypt.hash(this.contrasena, salt);
+        } catch (err) {
+            throw err;
+        }
+    }
+
+    // Capture if plan_id changed to use in post-save hook
+    if (this.isModified('plan_id')) {
+        this._planChanged = true;
     }
 });
 
 // Sincronizar plan_id con sus workspaces si cambia
 UsuariosSchema.post('save', async function (doc) {
-    if (this._planChanged) {
+    if (doc._planChanged) {
         await mongoose.model('WORKSPACES').updateMany(
             { admin_id: doc._id },
             { plan_id: doc.plan_id }
         );
     }
-});
-
-// Cargar estado previo antes de guardar
-UsuariosSchema.pre('save', function (next) {
-    if (this.isModified('plan_id')) {
-        this._planChanged = true;
-    }
-    next();
 });
 
 module.exports = mongoose.model('USUARIOS', UsuariosSchema);
