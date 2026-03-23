@@ -3,6 +3,7 @@ const router = Router();
 const controllers = require('../controllers');
 const AuthController = require('../controllers/auth.controller');
 const aiRoutes = require('./ai.routes');
+const optionalAuthMiddleware = require('../middlewares/optional-auth.middleware');
 // const authMiddleware = require('../middlewares/auth.middleware');
 
 // Auth Routes
@@ -18,6 +19,7 @@ router.put('/upload/:id', uploadMiddleware.single('file'), uploadController.upda
 
 // Workspace Custom Routes
 router.post('/workspaces/join-by-code', controllers.WorkspacesController.joinByCode.bind(controllers.WorkspacesController));
+router.post('/tickets/from-ai-draft', optionalAuthMiddleware, controllers.TicketsFromAIController.createFromAIDraft.bind(controllers.TicketsFromAIController));
 
 router.use('/ai', aiRoutes);
 

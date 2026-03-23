@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from app.api.routes.agent import router as agent_router
 from app.api.routes.health import router as health_router
 from app.api.routes.tickets import router as tickets_router
 from app.core.config import get_settings
@@ -15,3 +16,5 @@ app = FastAPI(
 
 app.include_router(health_router, tags=["health"])
 app.include_router(tickets_router, prefix="/tickets", tags=["tickets"])
+app.include_router(agent_router, prefix="/agent", tags=["agent"])
+

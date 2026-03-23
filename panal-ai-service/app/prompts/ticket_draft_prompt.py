@@ -17,8 +17,7 @@ def build_ticket_draft_prompt(payload: DraftTicketRequest) -> str:
     }
 
     return (
-        "You are a ticket drafting assistant for Panal. "
-        "Convert free text into a structured ticket draft.\n\n"
+        "Convert the following free text into a structured ticket draft.\n\n"
         "Strict output rules:\n"
         "1) Return only valid JSON.\n"
         "2) Do not include markdown, explanations, comments, or extra keys.\n"

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Panal AI — Asistente de Tickets</title>
+    <link rel="stylesheet" href="./style.css" />
+</head>
+
+<body>
+    <div class="bg-glow bg-glow-1"></div>
+    <div class="bg-glow bg-glow-2"></div>
+
+    <main class="app-shell">
+        <header class="hero">
+            <div class="hero-badge">
+                <span class="hero-badge-dot"></span>
+                Demo · IA en vivo
+            </div>
+            <h1>Panal <span class="hero-accent">AI</span></h1>
+            <p class="subtitle">Genera y guarda borradores de tickets con inteligencia artificial. Sin login requerido.
+            </p>
+        </header>
+
+        <section class="panel">
+            <p class="demo-note">
+                <span class="demo-note-icon">⚡</span>
+                Modo demo activo — usando <code>/api/ai/agent/plan</code> para planeación segura
+            </p>
+
+            <nav class="quick-actions" aria-label="Acciones rápidas">
+                <button class="quick-chip" data-action="draft">✦ Crear ticket</button>
+                <button class="quick-chip" data-action="summary">☰ Resumen de tickets</button>
+                <button class="quick-chip" data-action="classify">📊 Clasificar ticket</button>
+            </nav>
+
+            <div class="field">
+                <label for="problemInput">¿Qué necesitas?</label>
+                <textarea id="problemInput" rows="3"
+                    placeholder="Ej: La impresora de recepción no funciona... o Necesito un resumen de tickets..."></textarea>
+                <p class="field-hint">Pulsa <kbd>Ctrl</kbd>+<kbd>Enter</kbd> para enviar</p>
+            </div>
+
+            <div class="actions">
+                <button id="generateBtn" class="btn-primary">
+                    <span class="btn-icon" aria-hidden="true">✦</span>
+                    Enviar
+                </button>
+            </div>
+
+            <div id="errorBox" class="error hidden" role="alert"></div>
+
+            <section class="chat" id="chatArea" aria-label="Conversación de demo">
+                <div id="actionDetectionBox" class="action-detection hidden" role="status" aria-live="polite"></div>
+                <div id="typingIndicator" class="bubble-wrapper bubble-wrapper-ai hidden" aria-live="polite">
+                    <span class="bubble-label">IA Panal</span>
+                    <div class="bubble bubble-ai typing-bubble">
+                        <div class="typing-dots">
+                            <span></span><span></span><span></span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="resultCard" class="result-card hidden" aria-label="Resultado del agente">
+                <div id="resultContent"></div>
+            </section>
+        </section>
+    </main>
+
+    <script src="./script.js"></script>
+</body>
+
+</html>

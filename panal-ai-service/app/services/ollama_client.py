@@ -24,13 +24,15 @@ class OllamaClient:
             timeout_seconds=settings.ollama_timeout_seconds,
         )
 
-    async def generate_json(self, prompt: str) -> dict:
+    async def generate_json(self, prompt: str, system: str | None = None) -> dict:
         payload = {
             "model": self.model,
             "prompt": prompt,
             "stream": False,
             "format": "json",
         }
+        if system:
+            payload["system"] = system
 
         url = f"{self.base_url}/api/generate"
 
