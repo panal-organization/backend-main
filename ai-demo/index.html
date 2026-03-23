@@ -49,6 +49,12 @@
                 </button>
             </div>
 
+            <section id="agentStatusBox" class="agent-status hidden" aria-live="polite">
+                <span class="agent-status-dot" aria-hidden="true"></span>
+                <strong>Estado del agente:</strong>
+                <span id="agentStatusText">Listo</span>
+            </section>
+
             <div id="errorBox" class="error hidden" role="alert"></div>
 
             <section class="chat" id="chatArea" aria-label="Conversación de demo">
@@ -65,6 +71,16 @@
 
             <section id="resultCard" class="result-card hidden" aria-label="Resultado del agente">
                 <div id="resultContent"></div>
+            </section>
+
+            <p id="resultPlaceholder" class="result-placeholder">Aquí aparecerá el resultado del agente.</p>
+
+            <section id="sessionHistoryCard" class="session-history hidden" aria-label="Historial de la sesión">
+                <div class="session-history-header">
+                    <span class="draft-badge">Historial de la sesión</span>
+                    <p>Últimas 3 interacciones del agente</p>
+                </div>
+                <ul id="sessionHistoryList" class="session-history-list"></ul>
             </section>
         </section>
     </main>

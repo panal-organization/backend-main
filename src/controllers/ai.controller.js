@@ -483,11 +483,24 @@ class AIController {
             }
 
             if (intent === 'create_ticket') {
-                const draft = await AIService.createTicketDraft({
-                    text: trimmedText,
-                    userId: context.userId,
-                    workspaceId: context.workspaceId
-                });
+                const isReferentialCreate = AgentMemoryService.isReferentialOrShortCreateText(trimmedText);
+                const grounding = isReferentialCreate
+                    ? await AgentMemoryService.resolveCreateTicketGrounding({
+                        userId: context.userId,
+                        workspaceId: context.workspaceId,
+                        sessionId,
+                        currentText: trimmedText,
+                        recentContext
+                    })
+                    : null;
+
+                const draft = grounding?.draftPreview
+                    ? grounding.draftPreview
+                    : await AIService.createTicketDraft({
+                        text: grounding?.groundedText || trimmedText,
+                        userId: context.userId,
+                        workspaceId: context.workspaceId
+                    });
                 const steps = [
                     { tool: 'draft', status: 'ready' },
                     { tool: 'create_ticket_from_draft', status: 'requires_confirmation' }
@@ -500,6 +513,9 @@ class AIController {
                         categoria: draft.categoria
                     }
                 };
+                if (grounding?.source) {
+                    preview.grounding_source = grounding.source;
+                }
                 const log = await this.createInteractionLog({
                     userId: context.userId,
                     workspaceId: context.workspaceId,

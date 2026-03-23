@@ -11,9 +11,15 @@ const typingIndicator = document.getElementById("typingIndicator");
 const actionDetectionBox = document.getElementById("actionDetectionBox");
 const resultCard = document.getElementById("resultCard");
 const resultContent = document.getElementById("resultContent");
+const resultPlaceholder = document.getElementById("resultPlaceholder");
+const agentStatusBox = document.getElementById("agentStatusBox");
+const agentStatusText = document.getElementById("agentStatusText");
+const sessionHistoryCard = document.getElementById("sessionHistoryCard");
+const sessionHistoryList = document.getElementById("sessionHistoryList");
 
 let currentPlan = null;
 let currentSessionId = getOrCreateSessionId();
+let sessionHistory = [];
 
 function generateSessionId() {
     if (window.crypto?.randomUUID) {
@@ -40,6 +46,36 @@ const QUICK_PROMPTS = {
     draft: "La impresora del área de recepción no funciona y nadie puede imprimir",
     summary: "Dame un resumen de los tickets del día de hoy",
     classify: "Clasifica este ticket como soporte urgente: el servidor de base dato cae cada hora",
+};
+
+const STATUS_COPY = {
+    initial: "Listo para analizar tu solicitud.",
+    sending: "Analizando tu solicitud...",
+    planReady: "Plan generado correctamente.",
+    waitingConfirmation: "Esperando tu confirmación para ejecutar la acción.",
+    savingTicket: "Guardando ticket en el sistema...",
+    completed: "Acción completada correctamente.",
+    error: "Ocurrió un problema al procesar tu solicitud. Intenta nuevamente.",
+    unknownIntent: "No pude identificar claramente la acción solicitada.",
+    missingConfirmation: "Revisa el plan y confirma para continuar.",
+    byIntent: {
+        draft: {
+            planning: "Estoy preparando un borrador de ticket...",
+            ready: "Ya tengo listo un borrador para tu revisión."
+        },
+        summary: {
+            planning: "Estoy analizando los tickets del workspace...",
+            ready: "Ya preparé un resumen con los puntos más relevantes."
+        },
+        classify: {
+            planning: "Estoy clasificando el problema...",
+            ready: "Ya identifiqué prioridad y categoría sugeridas."
+        },
+        create_ticket: {
+            planning: "Estoy preparando un plan seguro para crear el ticket...",
+            ready: "El ticket requiere tu confirmación antes de guardarse."
+        }
+    }
 };
 
 document.querySelectorAll(".quick-chip").forEach((btn) => {
@@ -94,6 +130,147 @@ function setTyping(isTyping) {
     }
 }
 
+function setResultPlaceholderVisibility(isVisible) {
+    if (!resultPlaceholder) {
+        return;
+    }
+
+    resultPlaceholder.classList.toggle("hidden", !isVisible);
+}
+
+function setAgentStatus(status) {
+    if (!agentStatusBox || !agentStatusText) {
+        return;
+    }
+
+    agentStatusText.textContent = status;
+    agentStatusBox.classList.remove("hidden");
+}
+
+function confidenceToPercent(confidence) {
+    if (typeof confidence !== "number" || Number.isNaN(confidence)) {
+        return "-";
+    }
+
+    return `${(confidence * 100).toFixed(0)}%`;
+}
+
+function getStatusCopy(intent, stage) {
+    const intentMessages = STATUS_COPY.byIntent[intent];
+    if (intentMessages && intentMessages[stage]) {
+        return intentMessages[stage];
+    }
+
+    if (stage === "planning") {
+        return STATUS_COPY.sending;
+    }
+
+    if (stage === "ready") {
+        return STATUS_COPY.planReady;
+    }
+
+    return STATUS_COPY.planReady;
+}
+
+function mapFriendlyError(rawMessage) {
+    const message = (rawMessage || "").toLowerCase();
+    if (/intenci[óo]n no soportada|acci[óo]n no reconocida|no soportada por/.test(message)) {
+        return STATUS_COPY.unknownIntent;
+    }
+    if (/confirmaci[óo]n|confirmar/.test(message)) {
+        return STATUS_COPY.missingConfirmation;
+    }
+
+    return STATUS_COPY.error;
+}
+
+function sanitizeInline(value) {
+    if (typeof value !== "string" || !value.trim()) {
+        return "-";
+    }
+
+    return value;
+}
+
+function deriveAction(plan) {
+    if (!plan || typeof plan !== "object") {
+        return "none";
+    }
+
+    if (plan.intent === "create_ticket" && plan.requires_confirmation) {
+        return "create_ticket_pending_confirmation";
+    }
+
+    if (Array.isArray(plan.steps) && plan.steps.length > 0) {
+        return plan.steps.map((step) => `${step.tool || "tool"}:${step.status || "ready"}`).join(" | ");
+    }
+
+    return plan.intent || "none";
+}
+
+function pushSessionHistory({ userText, intent, action }) {
+    sessionHistory.push({
+        userText: sanitizeInline(userText),
+        intent: sanitizeInline(intent),
+        action: sanitizeInline(action),
+        createdAt: new Date().toISOString()
+    });
+
+    sessionHistory = sessionHistory.slice(-3);
+    renderSessionHistory();
+}
+
+function updateLastHistoryAction(action) {
+    if (!sessionHistory.length) {
+        return;
+    }
+
+    const lastIndex = sessionHistory.length - 1;
+    sessionHistory[lastIndex].action = sanitizeInline(action);
+    renderSessionHistory();
+}
+
+function renderSessionHistory() {
+    if (!sessionHistoryCard || !sessionHistoryList) {
+        return;
+    }
+
+    sessionHistoryList.innerHTML = "";
+    if (!sessionHistory.length) {
+        sessionHistoryCard.classList.add("hidden");
+        return;
+    }
+
+    sessionHistory.forEach((entry) => {
+        const item = document.createElement("li");
+        item.className = "session-history-item";
+
+        const text = document.createElement("p");
+        text.className = "session-history-text";
+        text.textContent = entry.userText;
+
+        const meta = document.createElement("div");
+        meta.className = "session-history-meta";
+
+        const intentChip = document.createElement("span");
+        intentChip.className = "history-chip";
+        intentChip.textContent = `intent: ${entry.intent}`;
+
+        const actionChip = document.createElement("span");
+        actionChip.className = "history-chip";
+        actionChip.textContent = `acción: ${entry.action}`;
+
+        meta.appendChild(intentChip);
+        meta.appendChild(actionChip);
+
+        item.appendChild(text);
+        item.appendChild(meta);
+        sessionHistoryList.appendChild(item);
+    });
+
+    sessionHistoryCard.classList.remove("hidden");
+}
+
 function showActionDetection(action, confidence) {
     const actionLabels = {
         draft: "Crear ticket",
@@ -103,7 +280,7 @@ function showActionDetection(action, confidence) {
     };
 
     const label = actionLabels[action] || action;
-    const confPercent = (confidence * 100).toFixed(0);
+    const confPercent = confidenceToPercent(confidence).replace("%", "");
 
     actionDetectionBox.innerHTML = `
         <span class=\"action-detection-icon\">🤖</span>
@@ -166,8 +343,26 @@ function renderPlanHeader(plan) {
                     <h2>Plan de ejecución: ${plan.intent}</h2>
                 </div>
                 <span class="draft-confidence-badge">
-                    Confianza: <strong>${typeof plan.confidence === "number" ? (plan.confidence * 100).toFixed(0) : "-"}%</strong>
+                    Confianza: <strong>${confidenceToPercent(plan.confidence)}</strong>
                 </span>
+            </div>
+            <div class="traceability-grid">
+                <div class="traceability-item">
+                    <span class="traceability-label">Intent detectado</span>
+                    <span class="traceability-value">${sanitizeInline(plan.intent)}</span>
+                </div>
+                <div class="traceability-item">
+                    <span class="traceability-label">Confidence</span>
+                    <span class="traceability-value">${confidenceToPercent(plan.confidence)}</span>
+                </div>
+                <div class="traceability-item">
+                    <span class="traceability-label">ai_log_id</span>
+                    <span class="traceability-value traceability-value-code">${sanitizeInline(plan.ai_log_id || "N/A")}</span>
+                </div>
+                <div class="traceability-item">
+                    <span class="traceability-label">session_id</span>
+                    <span class="traceability-value traceability-value-code">${sanitizeInline(plan.session_id || currentSessionId || "N/A")}</span>
+                </div>
             </div>
             <p class="plan-message">${plan.message || "Plan generado"}</p>
             <div class="draft-meta-item draft-meta-item-wide">
@@ -325,6 +520,7 @@ function renderPlan(plan) {
     }
 
     resultCard.classList.remove("hidden");
+    setResultPlaceholderVisibility(false);
     resultCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
@@ -344,13 +540,15 @@ async function handleAgentResponse() {
     const text = problemInput.value.trim();
 
     if (!text) {
-        showError("Escribe algo para que el agente pueda ayudarte.");
+        showError(STATUS_COPY.error);
         return;
     }
 
     addBubble(text, "user");
+    setAgentStatus(STATUS_COPY.sending);
     setTyping(true);
     resultCard.classList.add("hidden");
+    setResultPlaceholderVisibility(true);
 
     try {
         const response = await fetch(PLAN_URL, {
@@ -369,6 +567,8 @@ async function handleAgentResponse() {
         const plan = await response.json();
         currentPlan = plan;
 
+        setAgentStatus(getStatusCopy(plan.intent, "planning"));
+
         if (plan.session_id && typeof plan.session_id === "string") {
             currentSessionId = plan.session_id;
             window.localStorage.setItem(SESSION_STORAGE_KEY, currentSessionId);
@@ -377,16 +577,29 @@ async function handleAgentResponse() {
         showActionDetection(plan.intent, plan.confidence);
 
         if (plan.intent === "create_ticket" && plan.requires_confirmation) {
-            addBubble("Preparé un plan seguro. Revisa el borrador y confirma si deseas crear el ticket.", "ai");
+            setAgentStatus(STATUS_COPY.waitingConfirmation);
+            addBubble("Revisa el plan y confirma para continuar.", "ai");
         } else {
-            addBubble("Plan generado y preview listo.", "ai");
+            setAgentStatus(getStatusCopy(plan.intent, "ready"));
+            addBubble(STATUS_COPY.planReady, "ai");
         }
 
         renderPlan(plan);
+        pushSessionHistory({
+            userText: text,
+            intent: plan.intent,
+            action: deriveAction(plan)
+        });
+
+        if (!(plan.intent === "create_ticket" && plan.requires_confirmation)) {
+            setAgentStatus(STATUS_COPY.completed);
+        }
 
         problemInput.value = "";
     } catch (error) {
-        showError(error.message || "No se pudo conectar con el backend.");
+        showError(mapFriendlyError(error.message));
+        setAgentStatus(STATUS_COPY.error);
+        setResultPlaceholderVisibility(true);
     } finally {
         setTyping(false);
     }
@@ -405,6 +618,7 @@ async function executeConfirmedAction(draftPreview, aiLogId) {
     confirmErrorBox.classList.add("hidden");
     confirmLoadingBox.classList.remove("hidden");
     confirmCreateBtn.disabled = true;
+    setAgentStatus(STATUS_COPY.savingTicket);
 
     try {
         const response = await fetch(SAVE_URL, {
@@ -425,14 +639,18 @@ async function executeConfirmedAction(draftPreview, aiLogId) {
         confirmSuccessBox.classList.remove("hidden");
         confirmTicketId.textContent = "ID: " + ticket._id;
         confirmCreateBtn.innerHTML = "✔ Ticket creado";
+        setAgentStatus(STATUS_COPY.completed);
+        addBubble(`Ticket creado correctamente. ticket_id: ${ticket._id}`, "ai");
+        updateLastHistoryAction(`ticket_created:${ticket._id}`);
 
         if (currentPlan && currentPlan.intent === "create_ticket") {
             currentPlan.requires_confirmation = false;
         }
     } catch (error) {
-        confirmErrorBox.textContent = error.message || "No se pudo crear el ticket.";
+        confirmErrorBox.textContent = mapFriendlyError(error.message);
         confirmErrorBox.classList.remove("hidden");
         confirmCreateBtn.disabled = false;
+        setAgentStatus(STATUS_COPY.waitingConfirmation);
     } finally {
         confirmLoadingBox.classList.add("hidden");
     }
@@ -444,3 +662,6 @@ generateBtn.addEventListener("click", handleAgentResponse);
 problemInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) handleAgentResponse();
 });
+
+setAgentStatus(STATUS_COPY.initial);
+setResultPlaceholderVisibility(true);

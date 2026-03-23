@@ -250,6 +250,29 @@ textarea:focus {
     margin-bottom: 16px;
 }
 
+.agent-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 14px;
+    border: 1px solid #d5e8fb;
+    background: #f3f9ff;
+    color: #24507e;
+    border-radius: 12px;
+    padding: 9px 12px;
+    font-size: 13px;
+    animation: bubble-in 0.25s ease;
+}
+
+.agent-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #2b8bdb;
+    box-shadow: 0 0 0 2px #d3e9fb;
+    flex-shrink: 0;
+}
+
 /* ── Buttons ────────────────────────────────────────────────────────────────── */
 button {
     border: 0;
@@ -699,6 +722,13 @@ button {
     animation: bubble-in 0.3s ease;
 }
 
+.result-placeholder {
+    margin: 14px 2px 0;
+    color: #6f8196;
+    font-size: 13px;
+    font-style: italic;
+}
+
 /* ── Coming soon card ───────────────────────────────────────────────────────── */
 .coming-soon-card {
     text-align: center;
@@ -741,6 +771,44 @@ button {
     margin: 0 0 10px;
     color: #305173;
     line-height: 1.5;
+}
+
+.traceability-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.traceability-item {
+    border: 1px solid #d8e5f3;
+    background: #ffffff;
+    border-radius: 10px;
+    padding: 8px 10px;
+}
+
+.traceability-label {
+    display: block;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    color: #6d7f95;
+    margin-bottom: 4px;
+}
+
+.traceability-value {
+    display: block;
+    font-size: 13px;
+    color: #14385c;
+    font-weight: 600;
+    word-break: break-word;
+}
+
+.traceability-value-code {
+    font-family: "Menlo", "Consolas", monospace;
+    font-size: 12px;
+    color: #2b5278;
 }
 
 .plan-steps {
@@ -792,6 +860,69 @@ button {
 .confirmation-card {
     border-top: 1px solid #e2edf9;
     padding-top: 14px;
+}
+
+.session-history {
+    margin-top: 18px;
+    border: 1px solid #dce8f4;
+    border-radius: 16px;
+    background: #f8fbff;
+    padding: 14px;
+}
+
+.session-history-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.session-history-header p {
+    margin: 0;
+    color: #55708d;
+    font-size: 12px;
+}
+
+.session-history-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.session-history-item {
+    border: 1px solid #d8e5f3;
+    background: #ffffff;
+    border-radius: 10px;
+    padding: 9px 10px;
+}
+
+.session-history-text {
+    margin: 0 0 6px;
+    color: #243c55;
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.session-history-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.history-chip {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    border: 1px solid #d8e5f3;
+    background: #f2f7fd;
+    color: #32597f;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 700;
 }
 
 .btn-confirm {
@@ -846,6 +977,15 @@ button {
 
     .draft-meta {
         gap: 10px;
+    }
+
+    .traceability-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .session-history-header {
+        flex-direction: column;
+        align-items: flex-start;
     }
 
     .quick-chip {

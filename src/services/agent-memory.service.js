@@ -2,8 +2,244 @@ const AgentMemory = require('../models/agent_memory.model');
 
 const MAX_MEMORY_ENTRIES = 5;
 const MAX_TEXT_LENGTH = 280;
+const CREATE_REFERENTIAL_PATTERNS = [
+    /^crea(?:lo|la|los|las)?$/,
+    /^haz(?:lo|la)?$/,
+    /^registra(?:lo|la)?$/,
+    /^guarda(?:lo|la)?$/,
+    /^ahora\s+crea(?:\s+el)?\s+ticket$/,
+    /^crea(?:\s+el)?\s+ticket$/
+];
 
 class AgentMemoryService {
+    normalizeText(value) {
+        if (typeof value !== 'string') {
+            return '';
+        }
+
+        return value
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    tryParseJson(value) {
+        if (typeof value !== 'string') {
+            return null;
+        }
+
+        const trimmed = value.trim();
+        if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
+            return null;
+        }
+
+        try {
+            return JSON.parse(trimmed);
+        } catch (_error) {
+            return null;
+        }
+    }
+
+    normalizeDraftPreview(preview) {
+        if (!preview || typeof preview !== 'object') {
+            return null;
+        }
+
+        const titulo = this.summarizeText(preview.titulo || '', 140);
+        const descripcion = this.summarizeText(preview.descripcion || '', 700);
+        const prioridad = typeof preview.prioridad === 'string' ? preview.prioridad.trim().toUpperCase() : '';
+        const categoria = typeof preview.categoria === 'string' ? preview.categoria.trim().toUpperCase() : '';
+
+        if (!titulo && !descripcion) {
+            return null;
+        }
+
+        return {
+            titulo: titulo || 'Ticket generado desde contexto previo',
+            descripcion: descripcion || titulo,
+            prioridad: prioridad || 'BAJA',
+            categoria: categoria || 'SOPORTE'
+        };
+    }
+
+    extractPreview(entry, previewKey) {
+        if (!entry || typeof entry !== 'object') {
+            return null;
+        }
+
+        const candidates = [];
+        if (entry.result_summary) {
+            candidates.push(entry.result_summary);
+        }
+        if (entry.text) {
+            candidates.push(entry.text);
+        }
+
+        for (const candidate of candidates) {
+            const parsed = this.tryParseJson(candidate);
+            if (!parsed || typeof parsed !== 'object') {
+                continue;
+            }
+
+            if (parsed[previewKey] && typeof parsed[previewKey] === 'object') {
+                return parsed[previewKey];
+            }
+        }
+
+        return null;
+    }
+
+    isReferentialOrShortCreateText(text) {
+        const normalized = this.normalizeText(text);
+        if (!normalized) {
+            return false;
+        }
+
+        if (CREATE_REFERENTIAL_PATTERNS.some((pattern) => pattern.test(normalized))) {
+            return true;
+        }
+
+        const words = normalized.split(' ').filter(Boolean);
+        if (words.length <= 4 && /\b(crea|crear|haz|hacer|registra|registrar|guarda|guardar)\b/.test(normalized)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    isUsefulUserText(text) {
+        if (typeof text !== 'string') {
+            return false;
+        }
+
+        const normalized = this.normalizeText(text);
+        if (!normalized) {
+            return false;
+        }
+
+        if (this.isReferentialOrShortCreateText(normalized)) {
+            return false;
+        }
+
+        const words = normalized.split(' ').filter(Boolean);
+        return normalized.length >= 12 || words.length >= 4;
+    }
+
+    buildDraftTextFromPreview(preview) {
+        if (!preview) {
+            return '';
+        }
+
+        return this.summarizeText(
+            `Problema reportado: ${preview.titulo}. Detalle: ${preview.descripcion}. Prioridad sugerida: ${preview.prioridad}. Categoria sugerida: ${preview.categoria}.`,
+            900
+        );
+    }
+
+    buildDraftTextFromClassify(classifyPreview, userText) {
+        const baseUserText = this.summarizeText(userText || '', 500);
+        const prioridad = this.summarizeText(classifyPreview?.prioridad || '', 50);
+        const categoria = this.summarizeText(classifyPreview?.categoria || '', 50);
+        const justificacion = this.summarizeText(classifyPreview?.justificacion || '', 300);
+
+        const chunks = [];
+        if (baseUserText) {
+            chunks.push(`Problema reportado: ${baseUserText}.`);
+        }
+        if (prioridad || categoria) {
+            chunks.push(`Clasificacion previa: prioridad ${prioridad || 'no definida'}, categoria ${categoria || 'no definida'}.`);
+        }
+        if (justificacion) {
+            chunks.push(`Justificacion: ${justificacion}.`);
+        }
+
+        return this.summarizeText(chunks.join(' '), 900);
+    }
+
+    async resolveCreateTicketGrounding({ userId, workspaceId, sessionId, currentText, recentContext = null }) {
+        if (!userId || !workspaceId || !sessionId) {
+            return null;
+        }
+
+        const contextEntries = Array.isArray(recentContext)
+            ? recentContext
+            : await this.getRecentContext({ userId, workspaceId, sessionId });
+
+        if (!Array.isArray(contextEntries) || contextEntries.length === 0) {
+            return null;
+        }
+
+        const normalizedCurrent = this.normalizeText(currentText);
+
+        for (let index = contextEntries.length - 1; index >= 0; index -= 1) {
+            const entry = contextEntries[index];
+            if (entry.role !== 'assistant') {
+                continue;
+            }
+
+            const draftPreview = this.normalizeDraftPreview(this.extractPreview(entry, 'draft_preview'));
+            if (draftPreview) {
+                return {
+                    source: 'last_draft_preview',
+                    groundedText: this.buildDraftTextFromPreview(draftPreview),
+                    draftPreview,
+                    classifyPreview: null,
+                    userText: ''
+                };
+            }
+        }
+
+        let usefulUserText = '';
+        for (let index = contextEntries.length - 1; index >= 0; index -= 1) {
+            const entry = contextEntries[index];
+            if (entry.role !== 'user') {
+                continue;
+            }
+
+            const normalizedUserText = this.normalizeText(entry.text || '');
+            if (!normalizedUserText || normalizedUserText === normalizedCurrent) {
+                continue;
+            }
+
+            if (this.isUsefulUserText(entry.text)) {
+                usefulUserText = entry.text;
+                break;
+            }
+        }
+
+        for (let index = contextEntries.length - 1; index >= 0; index -= 1) {
+            const entry = contextEntries[index];
+            if (entry.role !== 'assistant') {
+                continue;
+            }
+
+            const classifyPreview = this.extractPreview(entry, 'classify_preview');
+            if (classifyPreview && typeof classifyPreview === 'object') {
+                return {
+                    source: 'last_classify_preview',
+                    groundedText: this.buildDraftTextFromClassify(classifyPreview, usefulUserText),
+                    draftPreview: null,
+                    classifyPreview,
+                    userText: usefulUserText
+                };
+            }
+        }
+
+        if (usefulUserText) {
+            return {
+                source: 'last_user_text',
+                groundedText: this.summarizeText(usefulUserText, 900),
+                draftPreview: null,
+                classifyPreview: null,
+                userText: usefulUserText
+            };
+        }
+
+        return null;
+    }
+
     summarizeText(value, maxLength = MAX_TEXT_LENGTH) {
         if (typeof value !== 'string') {
             return '';
