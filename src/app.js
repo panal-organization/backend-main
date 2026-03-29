@@ -1,4 +1,6 @@
 require('dotenv').config(); // Must be first — services read process.env on module load
+const { validateRequiredEnv } = require('./config/env.validation');
+validateRequiredEnv();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');

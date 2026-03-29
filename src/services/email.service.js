@@ -23,12 +23,15 @@ class EmailService {
             const port = Number(process.env.SMTP_PORT) || 587;
             const secure = process.env.SMTP_SECURE === 'true';
             const user = process.env.SMTP_USER;
+            const maskedUser = user
+                ? `${String(user).slice(0, 2)}***${String(user).slice(-8)}`
+                : '⚠️  undefined';
 
             console.log('[EmailService] SMTP config on init:', {
                 host: host || '⚠️  undefined (will default to localhost)',
                 port,
                 secure,
-                user: user || '⚠️  undefined'
+                user: maskedUser
             });
 
             this.transporter = nodemailer.createTransport({

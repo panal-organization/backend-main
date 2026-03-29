@@ -1,5 +1,5 @@
 const { randomUUID } = require('crypto');
-const { AIService, AILogsService, AgentMemoryService, TicketsFromAIService } = require('../services');
+const { AIService, AILogsService, AgentMemoryService, TicketsFromAIService, InventoryService } = require('../services');
 const Workspaces = require('../models/workspaces.model');
 const WorkspacesUsuarios = require('../models/workspaces_usuarios.model');
 const Tickets = require('../models/tickets.model');
@@ -127,6 +127,11 @@ class AIController {
             return false;
         }
 
+        const inventorySignals = /\b(inventario|articulo|articulos|almacen|almacenes|existencias?|stock|bajo stock|stock bajo|minimo|minimos|critico|critica|criticos|criticas)\b/;
+        if (inventorySignals.test(normalizedText)) {
+            return true;
+        }
+
         const explicitSupportIntent = /\b(ticket|tickets|soporte|clasifica|clasificar|resumen|resume|sumario|sumariza|crear|crea|registra|guardar|guarda|incidencia)\b/;
         const supportSignals = /\b(error|falla|falla|problema|averia|averiado|no funciona|no puedo|sin acceso|acceso|permiso|permisos|correo|email|wifi|red|vpn|impresora|servidor|base de datos|celular|telefono|computadora|pc|laptop|monitor|pantalla|teclado|mouse|app|aplicacion|sistema|modulo|portal|cuenta|usuario|login)\b/;
 
@@ -183,6 +188,120 @@ class AIController {
         return null;
     }
 
+    detectInventoryIntent(text) {
+        const normalized = this.normalizeText(text);
+        if (!normalized) {
+            return null;
+        }
+
+        const rawLower = typeof text === 'string' ? text.toLowerCase() : '';
+        const hasInventoryDomain = /\b(inventar|articul|almac|stock|existenc|minim|critic)\w*/.test(normalized)
+            || /\b(inventar|articul|almac|stock|existenc|minim|critic)\w*/.test(rawLower);
+        if (!hasInventoryDomain) {
+            return null;
+        }
+
+        const alertsPatterns = [
+            /\b(alerta|alertas|alertamiento|avisos?)\b/,
+            /\b(inventario\s+en\s+alerta|alertas?\s+de\s+inventario)\b/
+        ];
+
+        if (alertsPatterns.some((pattern) => pattern.test(normalized))) {
+            return 'inventory_alerts';
+        }
+
+        const lowStockPatterns = [
+            /\b(bajo stock|stock bajo|stock minimo|minimo|critico|critica|criticos|criticas|quedan pocos|por debajo)\b/,
+            /\b(inventario\s+critico|inventario\s+en\s+riesgo)\b/,
+            /\barticulos?\s+(estan\s+)?bajos?\b/,
+            /\b(muestrame|muestranos|dame|listar|lista)\b.*\b(bajo stock|stock bajo)\b/
+        ];
+
+        if (lowStockPatterns.some((pattern) => pattern.test(normalized))) {
+            return 'inventory_low_stock';
+        }
+
+        const summaryPatterns = [
+            /\b(resumen|resume|sumario|estado general|panorama|distribucion)\b/,
+            /\b(por almacen|por almacenes|por almac)\b/,
+            /\b(total|totales)\b/
+        ];
+
+        if (summaryPatterns.some((pattern) => pattern.test(normalized))) {
+            return 'inventory_summary';
+        }
+
+        const listPatterns = [
+            /\b(lista|listar|muestra|mostrar|ensena|dame|cuales|cual(es)? hay)\b/,
+            /\barticulos?\s+hay\b/
+        ];
+
+        if (listPatterns.some((pattern) => pattern.test(normalized))) {
+            return 'inventory_list';
+        }
+
+        // Default inventory intent when user asks about inventory without explicit action.
+        return 'inventory_summary';
+    }
+
+    buildInventoryListMessage(items) {
+        if (!Array.isArray(items) || items.length === 0) {
+            return 'No hay artículos registrados en este workspace.';
+        }
+
+        const lines = items.map((item) => `- ${item.nombre} — almacén: ${item.almacen_nombre}`);
+        return `Estos son los artículos registrados:\n${lines.join('\n')}`;
+    }
+
+    buildInventorySummaryMessage(summary) {
+        if (!summary) {
+            return 'No fue posible construir el resumen de inventario.';
+        }
+
+        const distributionLines = (summary.articulos_por_almacen || [])
+            .map((entry) => `- ${entry.almacen_nombre}: ${entry.total_articulos}`)
+            .join('\n');
+
+        return [
+            `Actualmente hay ${summary.total_articulos} artículos registrados en ${summary.total_almacenes} almacenes.`,
+            'Distribución:',
+            distributionLines || '- Sin datos de distribución',
+            `Activos: ${summary.articulos_activos} | Inactivos: ${summary.articulos_inactivos}.`,
+            summary.integridad
+        ].join('\n');
+    }
+
+    buildInventoryLowStockMessage(payload) {
+        if (!payload || !Array.isArray(payload.items) || payload.items.length === 0) {
+            return 'No hay artículos en bajo stock actualmente.';
+        }
+
+        const lines = payload.items.map((item) => (
+            `- ${item.nombre} (${item.stock_actual} / mínimo ${item.stock_minimo} ${item.unidad || 'unidad'})`
+        ));
+
+        return [
+            `Hay ${payload.total_bajo_stock} artículos bajo stock:`,
+            lines.join('\n')
+        ].join('\n');
+    }
+
+    buildInventoryAlertsMessage(payload) {
+        if (!payload || !Array.isArray(payload.articulos_alerta) || payload.articulos_alerta.length === 0) {
+            return 'No hay alertas activas de inventario en este momento.';
+        }
+
+        const lines = payload.articulos_alerta.map((item) => {
+            const criticalTag = item.critico ? ' [CRITICO]' : '';
+            return `- ${item.nombre}${criticalTag} (${item.stock_actual} / mínimo ${item.stock_minimo} ${item.unidad || 'unidad'})`;
+        });
+
+        return [
+            `Se detectaron ${payload.total_alertas} alertas de inventario (${payload.total_criticos} críticas):`,
+            lines.join('\n')
+        ].join('\n');
+    }
+
     dedupeToolsInOrder(tools) {
         const seen = new Set();
         const ordered = [];
@@ -200,6 +319,20 @@ class AIController {
     }
 
     buildToolPlanFromText(text, fallbackIntent) {
+        const inventoryIntent = this.detectInventoryIntent(text);
+        if (inventoryIntent === 'inventory_alerts') {
+            return ['inventory_alerts'];
+        }
+        if (inventoryIntent === 'inventory_low_stock') {
+            return ['inventory_low_stock'];
+        }
+        if (inventoryIntent === 'inventory_list') {
+            return ['inventory_list'];
+        }
+        if (inventoryIntent === 'inventory_summary') {
+            return ['inventory_summary'];
+        }
+
         const normalized = this.normalizeText(text);
         const hasSummary = /\b(resume|resumen|sumariza|sumario|analiza)\b/.test(normalized);
         const hasUrgency = /\b(urgente|urgencia|critico|critica|alto impacto)\b/.test(normalized);
@@ -246,6 +379,18 @@ class AIController {
 
     inferPrimaryIntentFromTools(tools, fallbackIntent) {
         const ordered = Array.isArray(tools) ? tools : [];
+        if (ordered.includes('inventory_alerts')) {
+            return 'inventory_alerts';
+        }
+        if (ordered.includes('inventory_low_stock')) {
+            return 'inventory_low_stock';
+        }
+        if (ordered.includes('inventory_summary')) {
+            return 'inventory_summary';
+        }
+        if (ordered.includes('inventory_list')) {
+            return 'inventory_list';
+        }
         if (ordered.includes('create_ticket')) {
             return 'create_ticket';
         }
@@ -273,6 +418,49 @@ class AIController {
         aiLogId = null
     }) {
         if (!step || !step.tool) {
+            return { requiresConfirmation: false };
+        }
+
+        if (step.tool === 'inventory_list') {
+            const items = await InventoryService.getAllInventoryItems({
+                workspaceId: context.workspaceId
+            });
+
+            previews.inventory_list_preview = {
+                total: items.length,
+                items
+            };
+            previews.inventory_message = this.buildInventoryListMessage(items);
+            return { requiresConfirmation: false };
+        }
+
+        if (step.tool === 'inventory_summary') {
+            const summary = await InventoryService.getInventorySummary({
+                workspaceId: context.workspaceId
+            });
+
+            previews.inventory_summary_preview = summary;
+            previews.inventory_message = this.buildInventorySummaryMessage(summary);
+            return { requiresConfirmation: false };
+        }
+
+        if (step.tool === 'inventory_low_stock') {
+            const lowStock = await InventoryService.getLowStockItems({
+                workspaceId: context.workspaceId
+            });
+
+            previews.inventory_low_stock_preview = lowStock;
+            previews.inventory_message = this.buildInventoryLowStockMessage(lowStock);
+            return { requiresConfirmation: false };
+        }
+
+        if (step.tool === 'inventory_alerts') {
+            const alerts = await InventoryService.getInventoryAlerts({
+                workspaceId: context.workspaceId
+            });
+
+            previews.inventory_alerts_preview = alerts;
+            previews.inventory_message = this.buildInventoryAlertsMessage(alerts);
             return { requiresConfirmation: false };
         }
 
@@ -505,6 +693,11 @@ class AIController {
         draft_preview,
         summary_preview,
         classify_preview,
+        inventory_list_preview,
+        inventory_summary_preview,
+        inventory_low_stock_preview,
+        inventory_alerts_preview,
+        inventory_message,
         execution_result,
         blocked_reason,
         guidance
@@ -534,6 +727,21 @@ class AIController {
         }
         if (classify_preview) {
             response.classify_preview = classify_preview;
+        }
+        if (inventory_list_preview) {
+            response.inventory_list_preview = inventory_list_preview;
+        }
+        if (inventory_summary_preview) {
+            response.inventory_summary_preview = inventory_summary_preview;
+        }
+        if (inventory_low_stock_preview) {
+            response.inventory_low_stock_preview = inventory_low_stock_preview;
+        }
+        if (inventory_alerts_preview) {
+            response.inventory_alerts_preview = inventory_alerts_preview;
+        }
+        if (inventory_message) {
+            response.inventory_message = inventory_message;
         }
         if (execution_result) {
             response.execution_result = execution_result;
@@ -672,12 +880,21 @@ class AIController {
                 }));
             }
 
-            const decision = await AIService.decideAction({
-                text: trimmedText,
-                context: recentContext
-            });
-            const baseAction = decision.action;
-            const confidence = decision.confidence;
+            const directInventoryIntent = this.detectInventoryIntent(trimmedText);
+            let baseAction;
+            let confidence;
+
+            if (directInventoryIntent) {
+                baseAction = directInventoryIntent;
+                confidence = 0.98;
+            } else {
+                const decision = await AIService.decideAction({
+                    text: trimmedText,
+                    context: recentContext
+                });
+                baseAction = decision.action;
+                confidence = decision.confidence;
+            }
             const hintedIntent = this.isCreateTicketIntent(trimmedText) ? 'create_ticket' : baseAction;
             const tools = this.buildToolPlanFromText(trimmedText, hintedIntent);
 
@@ -724,6 +941,10 @@ class AIController {
                 finalMessage = 'Plan ejecutado correctamente.';
             }
 
+            if (previews.inventory_message) {
+                finalMessage = previews.inventory_message;
+            }
+
             const intent = this.inferPrimaryIntentFromTools(tools, hintedIntent);
 
             const memorySummary = {
@@ -756,6 +977,11 @@ class AIController {
                 draftPreview,
                 summaryPreview,
                 classifyPreview,
+                inventoryListPreview,
+                inventorySummaryPreview,
+                inventoryLowStockPreview,
+                inventoryAlertsPreview,
+                inventoryMessage,
                 memorySummary
             }) => {
                 const response = this.buildPlanResponse({
@@ -769,7 +995,12 @@ class AIController {
                     steps,
                     draft_preview: draftPreview,
                     summary_preview: summaryPreview,
-                    classify_preview: classifyPreview
+                    classify_preview: classifyPreview,
+                    inventory_list_preview: inventoryListPreview,
+                    inventory_summary_preview: inventorySummaryPreview,
+                    inventory_low_stock_preview: inventoryLowStockPreview,
+                    inventory_alerts_preview: inventoryAlertsPreview,
+                    inventory_message: inventoryMessage
                 });
 
                 await this.appendConversationMemory({
@@ -795,6 +1026,11 @@ class AIController {
                 draftPreview: previews.draft_preview,
                 summaryPreview: previews.summary_preview,
                 classifyPreview: previews.classify_preview,
+                inventoryListPreview: previews.inventory_list_preview,
+                inventorySummaryPreview: previews.inventory_summary_preview,
+                inventoryLowStockPreview: previews.inventory_low_stock_preview,
+                inventoryAlertsPreview: previews.inventory_alerts_preview,
+                inventoryMessage: previews.inventory_message,
                 memorySummary
             });
         } catch (error) {
@@ -944,6 +1180,11 @@ class AIController {
                 draft_preview: previews.draft_preview,
                 summary_preview: previews.summary_preview,
                 classify_preview: previews.classify_preview,
+                inventory_list_preview: previews.inventory_list_preview,
+                inventory_summary_preview: previews.inventory_summary_preview,
+                inventory_low_stock_preview: previews.inventory_low_stock_preview,
+                inventory_alerts_preview: previews.inventory_alerts_preview,
+                inventory_message: previews.inventory_message,
                 execution_result: executionResult
             }));
         } catch (error) {
@@ -995,11 +1236,21 @@ class AIController {
                     }
                 });
             }
-            const decision = await AIService.decideAction({
-                text: trimmedText,
-                context: recentContext
-            });
-            const { action, confidence } = decision;
+            const directInventoryIntent = this.detectInventoryIntent(trimmedText);
+            let action;
+            let confidence;
+
+            if (directInventoryIntent) {
+                action = directInventoryIntent;
+                confidence = 0.98;
+            } else {
+                const decision = await AIService.decideAction({
+                    text: trimmedText,
+                    context: recentContext
+                });
+                action = decision.action;
+                confidence = decision.confidence;
+            }
 
             const finalizeRoute = async ({
                 aiLogId,
@@ -1032,10 +1283,158 @@ class AIController {
                 return res.status(200).json(response);
             };
 
-            const VALID_ACTIONS = ['draft', 'classify', 'summary'];
+            const VALID_ACTIONS = ['draft', 'classify', 'summary', 'inventory_list', 'inventory_summary', 'inventory_low_stock', 'inventory_alerts'];
             if (!VALID_ACTIONS.includes(action)) {
                 return res.status(400).json({
                     message: `Acción no reconocida: "${action}". Válidas: ${VALID_ACTIONS.join(', ')}`
+                });
+            }
+
+            if (action === 'inventory_list') {
+                const items = await InventoryService.getAllInventoryItems({
+                    workspaceId: context.workspaceId
+                });
+                const message = this.buildInventoryListMessage(items);
+                const result = {
+                    total_articulos: items.length,
+                    items,
+                    mensaje: message
+                };
+
+                const log = await this.createInteractionLog({
+                    userId: context.userId,
+                    workspaceId: context.workspaceId,
+                    mode: context.mode,
+                    source: 'agent',
+                    userText: trimmedText,
+                    intent: action,
+                    confidence,
+                    requiresConfirmation: false,
+                    steps: [{ tool: 'inventory_list', status: 'executed' }],
+                    previewResumen: {
+                        inventory_list_preview: {
+                            total: items.length,
+                            items
+                        },
+                        inventory_message: message
+                    },
+                    executed: true,
+                    executionResult: { status: 'completed' }
+                });
+
+                return finalizeRoute({
+                    aiLogId: log._id,
+                    finalAction: action,
+                    result,
+                    message
+                });
+            }
+
+            if (action === 'inventory_summary') {
+                const summary = await InventoryService.getInventorySummary({
+                    workspaceId: context.workspaceId
+                });
+                const message = this.buildInventorySummaryMessage(summary);
+                const result = {
+                    ...summary,
+                    mensaje: message
+                };
+
+                const log = await this.createInteractionLog({
+                    userId: context.userId,
+                    workspaceId: context.workspaceId,
+                    mode: context.mode,
+                    source: 'agent',
+                    userText: trimmedText,
+                    intent: action,
+                    confidence,
+                    requiresConfirmation: false,
+                    steps: [{ tool: 'inventory_summary', status: 'executed' }],
+                    previewResumen: {
+                        inventory_summary_preview: summary,
+                        inventory_message: message
+                    },
+                    executed: true,
+                    executionResult: { status: 'completed' }
+                });
+
+                return finalizeRoute({
+                    aiLogId: log._id,
+                    finalAction: action,
+                    result,
+                    message
+                });
+            }
+
+            if (action === 'inventory_low_stock') {
+                const lowStock = await InventoryService.getLowStockItems({
+                    workspaceId: context.workspaceId
+                });
+                const message = this.buildInventoryLowStockMessage(lowStock);
+                const result = {
+                    ...lowStock,
+                    mensaje: message
+                };
+
+                const log = await this.createInteractionLog({
+                    userId: context.userId,
+                    workspaceId: context.workspaceId,
+                    mode: context.mode,
+                    source: 'agent',
+                    userText: trimmedText,
+                    intent: action,
+                    confidence,
+                    requiresConfirmation: false,
+                    steps: [{ tool: 'inventory_low_stock', status: 'executed' }],
+                    previewResumen: {
+                        inventory_low_stock_preview: lowStock,
+                        inventory_message: message
+                    },
+                    executed: true,
+                    executionResult: { status: 'completed' }
+                });
+
+                return finalizeRoute({
+                    aiLogId: log._id,
+                    finalAction: action,
+                    result,
+                    message
+                });
+            }
+
+            if (action === 'inventory_alerts') {
+                const alerts = await InventoryService.getInventoryAlerts({
+                    workspaceId: context.workspaceId
+                });
+                const message = this.buildInventoryAlertsMessage(alerts);
+                const result = {
+                    ...alerts,
+                    mensaje: message
+                };
+
+                const log = await this.createInteractionLog({
+                    userId: context.userId,
+                    workspaceId: context.workspaceId,
+                    mode: context.mode,
+                    source: 'agent',
+                    userText: trimmedText,
+                    intent: action,
+                    confidence,
+                    requiresConfirmation: false,
+                    steps: [{ tool: 'inventory_alerts', status: 'executed' }],
+                    previewResumen: {
+                        inventory_alerts_preview: alerts,
+                        inventory_message: message
+                    },
+                    executed: true,
+                    executionResult: { status: 'completed' }
+                });
+
+                return finalizeRoute({
+                    aiLogId: log._id,
+                    finalAction: action,
+                    result,
+                    message
                 });
             }
 

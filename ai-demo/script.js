@@ -105,6 +105,14 @@ const STATUS_COPY = {
     unknownIntent: "No pude identificar claramente la acción solicitada.",
     missingConfirmation: "Revisa el plan y confirma para continuar.",
     byIntent: {
+        inventory_list: {
+            planning: "Estoy consultando el inventario...",
+            ready: "Consulta de inventario completada."
+        },
+        inventory_summary: {
+            planning: "Estoy preparando el resumen de inventario...",
+            ready: "Consulta de inventario completada."
+        },
         draft: {
             planning: "Estoy preparando un borrador de ticket...",
             ready: "Ya tengo listo un borrador para tu revisión."
@@ -490,6 +498,10 @@ function isBlockedIntent(intent) {
     return ["sensitive_request", "abusive_request", "out_of_scope"].includes(intent);
 }
 
+function isInventoryIntent(intent) {
+    return ["inventory_list", "inventory_summary"].includes(intent);
+}
+
 function showActionDetection(action, confidence) {
     const actionLabels = {
         draft: "Crear ticket",
@@ -870,11 +882,15 @@ async function handleAgentResponse() {
         } else if (plan.intent === "create_ticket" && plan.requires_confirmation) {
             setAgentStatus(STATUS_COPY.waitingConfirmation);
             addBubble("Revisa el plan y confirma para continuar.", "ai");
-            showToast("Plan generado. Revisa y confirma para guardar el ticket.", "warning", 6000);
+            showToast("Acción requiere confirmación", "warning", 6000);
+        } else if (isInventoryIntent(plan.intent)) {
+            setAgentStatus(getStatusCopy(plan.intent, "ready"));
+            addBubble(plan.message || getStatusCopy(plan.intent, "ready"), "ai");
+            showToast("Consulta de inventario completada", "success");
         } else {
             setAgentStatus(getStatusCopy(plan.intent, "ready"));
-            addBubble(STATUS_COPY.planReady, "ai");
-            showToast(getStatusCopy(plan.intent, "ready"), "success");
+            addBubble(plan.message || STATUS_COPY.planReady, "ai");
+            showToast("Plan generado correctamente", "success");
         }
 
         renderPlan(plan);
@@ -895,7 +911,7 @@ async function handleAgentResponse() {
         showError(mapFriendlyError(error.message));
         setAgentStatus(STATUS_COPY.error);
         setResultPlaceholderVisibility(true);
-        showToast(mapFriendlyError(error.message), "error");
+        showToast("Ocurrió un error en la operación", "error");
     } finally {
         setTyping(false);
     }
@@ -950,7 +966,7 @@ async function executeConfirmedAction(aiLogId) {
                 "ai"
             );
             if (ticketId) {
-                showToast(`Ticket creado correctamente · ID: ${ticketId}`, "success", 6000);
+                showToast("Ticket creado correctamente", "success", 6000);
                 updateLastHistoryAction(`ticket_created:${ticketId}`);
             } else {
                 showToast("Acción completada correctamente.", "success");
@@ -974,7 +990,7 @@ async function executeConfirmedAction(aiLogId) {
         confirmErrorBox.classList.remove("hidden");
         confirmCreateBtn.disabled = false;
         setAgentStatus(STATUS_COPY.waitingConfirmation);
-        showToast(mapFriendlyError(error.message), "error");
+        showToast("Ocurrió un error en la operación", "error");
     } finally {
         confirmLoadingBox.classList.add("hidden");
     }

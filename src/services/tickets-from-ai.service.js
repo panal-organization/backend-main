@@ -8,8 +8,105 @@ const EmailService = require('./email.service');
 const ALLOWED_PRIORITIES = ['BAJA', 'ALTA', 'CRITICA'];
 const ALLOWED_CATEGORIES = ['SOPORTE', 'MEJORA'];
 const ALLOWED_INPUT_KEYS = ['titulo', 'descripcion', 'prioridad', 'categoria'];
+const AUTO_INVENTORY_TICKET_TITLE = 'Artículo sin stock';
+const AUTO_INVENTORY_TICKET_PREFIX = 'AUTO_INVENTORY_ALERT';
 
 class TicketsFromAIService {
+    escapeRegex(value) {
+        return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    buildInventoryAutoMarker(articleId) {
+        return `${AUTO_INVENTORY_TICKET_PREFIX}:${articleId}`;
+    }
+
+    async resolveSystemActorForWorkspace(workspaceId) {
+        const workspace = await Workspaces.findById(workspaceId).lean();
+        if (workspace?.admin_id) {
+            return workspace.admin_id.toString();
+        }
+
+        const membership = await WorkspacesUsuarios.findOne({
+            workspace_id: workspaceId
+        }).sort({ createdAt: 1 }).lean();
+
+        if (membership?.usuario_id) {
+            return membership.usuario_id.toString();
+        }
+
+        const error = new Error('No se pudo resolver un usuario para crear ticket automático de inventario');
+        error.status = 404;
+        throw error;
+    }
+
+    async createAutoInventoryCriticalTicket({ workspaceId, articulo }) {
+        if (!workspaceId) {
+            const error = new Error('workspaceId es requerido para ticket automático de inventario');
+            error.status = 400;
+            throw error;
+        }
+
+        if (!articulo?.id || !articulo?.nombre) {
+            const error = new Error('articulo inválido para ticket automático de inventario');
+            error.status = 400;
+            throw error;
+        }
+
+        const marker = this.buildInventoryAutoMarker(articulo.id);
+        const markerRegex = new RegExp(this.escapeRegex(marker), 'i');
+
+        const existingTicket = await Tickets.findOne({
+            workspace_id: workspaceId,
+            is_deleted: false,
+            estado: { $ne: 'RESUELTO' },
+            titulo: AUTO_INVENTORY_TICKET_TITLE,
+            prioridad: 'CRITICA',
+            categoria: 'SOPORTE',
+            descripcion: markerRegex
+        });
+
+        if (existingTicket) {
+            return {
+                created: false,
+                reason: 'duplicate_active_ticket',
+                ticket: existingTicket
+            };
+        }
+
+        const actorUserId = await this.resolveSystemActorForWorkspace(workspaceId);
+        const descripcion = [
+            `El artículo ${articulo.nombre} del almacén ${articulo.almacen_nombre || 'Sin almacén'} se quedó sin stock (stock_actual=0).`,
+            'Este ticket fue generado automáticamente por monitoreo de inventario crítico.',
+            `Referencia automática: ${marker}`
+        ].join('\n');
+
+        const payload = {
+            titulo: AUTO_INVENTORY_TICKET_TITLE,
+            descripcion,
+            prioridad: 'CRITICA',
+            categoria: 'SOPORTE',
+            estado: 'PENDIENTE',
+            foto: null,
+            is_deleted: false,
+            comentarios: [],
+            created_by: actorUserId,
+            workspace_id: workspaceId
+        };
+
+        const ticket = await Tickets.create(payload);
+
+        this.sendTicketNotificationAsync({
+            ticket,
+            userId: actorUserId
+        });
+
+        return {
+            created: true,
+            reason: 'created',
+            ticket
+        };
+    }
+
     async createFromDraft({ draft, jwtUserId, aiLogId }) {
         this.validateDraftInput(draft);
 

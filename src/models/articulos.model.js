@@ -7,7 +7,29 @@ const ArticuloSchema = new Schema({
     descripcion: { type: String, default: null },
     almacen_id: { type: Schema.Types.ObjectId, ref: 'ALMACEN' },
     workspace_id: { type: Schema.Types.ObjectId, ref: 'WORKSPACES', required: true },
-    estatus: { type: Boolean, default: true }
+    estatus: { type: Boolean, default: true },
+    stock_actual: { type: Number, required: true, default: 0, min: 0 },
+    stock_minimo: { type: Number, required: true, default: 0, min: 0 },
+    unidad: { type: String, required: true, default: 'unidad' },
+    stock_maximo: {
+        type: Number,
+        default: null,
+        validate: {
+            validator(value) {
+                if (value === null || value === undefined) {
+                    return true;
+                }
+
+                if (value < 0) {
+                    return false;
+                }
+
+                return value >= (this.stock_minimo ?? 0);
+            },
+            message: 'stock_maximo debe ser mayor o igual a stock_minimo'
+        }
+    },
+    alerta_activa: { type: Boolean, default: false }
 }, {
     timestamps: true,
     versionKey: false

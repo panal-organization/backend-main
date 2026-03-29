@@ -52,6 +52,9 @@ web_modules/
 # Optional npm cache directory
 .npm
 
+*.md
+md/
+
 # Optional eslint cache
 .eslintcache
 
@@ -70,7 +73,13 @@ web_modules/
 # dotenv environment variable files
 .env
 .env.*
+*.env
 !.env.example
+
+# explicit safety patterns
+dist/
+coverage/
+*.log
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
