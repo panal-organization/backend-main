@@ -5,7 +5,7 @@ const AILogSchema = new Schema({
     user_id: { type: Schema.Types.ObjectId, ref: 'USUARIOS', required: true },
     workspace_id: { type: Schema.Types.ObjectId, ref: 'WORKSPACES', required: true },
     mode: { type: String, enum: ['jwt', 'demo'], required: true },
-    source: { type: String, enum: ['agent', 'agent_plan'], required: true },
+    source: { type: String, enum: ['agent', 'agent_plan', 'agent_policy', 'agent_plan_policy'], required: true },
     user_text: { type: String, required: true },
     intent: { type: String, required: true },
     confidence: { type: Number, default: null },

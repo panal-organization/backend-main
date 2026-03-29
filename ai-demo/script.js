@@ -1,10 +1,11 @@
 const PLAN_URL = "http://127.0.0.1:3000/api/ai/agent/plan";
-const SAVE_URL = "http://127.0.0.1:3000/api/tickets/from-ai-draft";
+const CONTINUE_URL = "http://127.0.0.1:3000/api/ai/agent/continue";
 const SESSION_STORAGE_KEY = "panal_ai_session_id";
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const problemInput = document.getElementById("problemInput");
 const generateBtn = document.getElementById("generateBtn");
+const newConversationBtn = document.getElementById("newConversationBtn");
 const errorBox = document.getElementById("errorBox");
 const chatArea = document.getElementById("chatArea");
 const typingIndicator = document.getElementById("typingIndicator");
@@ -16,10 +17,12 @@ const agentStatusBox = document.getElementById("agentStatusBox");
 const agentStatusText = document.getElementById("agentStatusText");
 const sessionHistoryCard = document.getElementById("sessionHistoryCard");
 const sessionHistoryList = document.getElementById("sessionHistoryList");
+const toastContainer = document.getElementById("toastContainer");
 
 let currentPlan = null;
 let currentSessionId = getOrCreateSessionId();
 let sessionHistory = [];
+let activeConversationNonce = 0;
 
 function generateSessionId() {
     if (window.crypto?.randomUUID) {
@@ -37,8 +40,50 @@ function getOrCreateSessionId() {
     }
 
     const created = generateSessionId();
-    window.localStorage.setItem(SESSION_STORAGE_KEY, created);
+    persistSessionId(created);
     return created;
+}
+
+function persistSessionId(sessionId) {
+    currentSessionId = sessionId;
+    window.localStorage.setItem(SESSION_STORAGE_KEY, sessionId);
+}
+
+function resetActionDetection() {
+    actionDetectionBox.innerHTML = "";
+    actionDetectionBox.classList.add("hidden");
+}
+
+function clearChatConversation() {
+    const bubbles = chatArea.querySelectorAll(".bubble-wrapper");
+    bubbles.forEach((bubble) => {
+        if (bubble !== typingIndicator) {
+            bubble.remove();
+        }
+    });
+}
+
+function resetConversationView() {
+    hideError();
+    setTyping(false);
+    resetActionDetection();
+    clearChatConversation();
+    resultContent.innerHTML = "";
+    resultCard.classList.add("hidden");
+    setResultPlaceholderVisibility(true);
+    sessionHistory = [];
+    renderSessionHistory();
+    problemInput.value = "";
+    setAgentStatus(STATUS_COPY.initial);
+}
+
+function startNewConversation() {
+    activeConversationNonce += 1;
+    currentPlan = null;
+    persistSessionId(generateSessionId());
+    resetConversationView();
+    problemInput.focus();
+    showToast("Se inició una nueva conversación.", "info");
 }
 
 // ── Quick actions mapping ──────────────────────────────────────────────────────
@@ -55,6 +100,7 @@ const STATUS_COPY = {
     waitingConfirmation: "Esperando tu confirmación para ejecutar la acción.",
     savingTicket: "Guardando ticket en el sistema...",
     completed: "Acción completada correctamente.",
+    blocked: "Solicitud atendida con políticas de seguridad.",
     error: "Ocurrió un problema al procesar tu solicitud. Intenta nuevamente.",
     unknownIntent: "No pude identificar claramente la acción solicitada.",
     missingConfirmation: "Revisa el plan y confirma para continuar.",
@@ -74,6 +120,18 @@ const STATUS_COPY = {
         create_ticket: {
             planning: "Estoy preparando un plan seguro para crear el ticket...",
             ready: "El ticket requiere tu confirmación antes de guardarse."
+        },
+        sensitive_request: {
+            planning: "Estoy validando la solicitud con políticas de seguridad...",
+            ready: "No puedo proporcionar contraseñas ni credenciales."
+        },
+        abusive_request: {
+            planning: "Estoy revisando la solicitud...",
+            ready: "Puedo ayudarte si describes el problema de forma profesional."
+        },
+        out_of_scope: {
+            planning: "Estoy validando el alcance de la solicitud...",
+            ready: "Solo puedo ayudar con soporte técnico y tickets dentro de Panal."
         }
     }
 };
@@ -91,17 +149,101 @@ document.querySelectorAll(".quick-chip").forEach((btn) => {
 });
 
 // ── Chat helpers ───────────────────────────────────────────────────────────────
+function formatTime(timestamp) {
+    const date = timestamp ? new Date(timestamp) : new Date();
+    if (Number.isNaN(date.getTime())) {
+        return "--:--";
+    }
+
+    return new Intl.DateTimeFormat("es-MX", {
+        hour: "2-digit",
+        minute: "2-digit"
+    }).format(date);
+}
+
+function formatIntentLabel(intent) {
+    const labels = {
+        draft: "Borrador",
+        summary: "Resumen",
+        classify: "Clasificación",
+        create_ticket: "Crear ticket",
+        sensitive_request: "Solicitud sensible",
+        abusive_request: "Lenguaje no permitido",
+        out_of_scope: "Fuera de alcance"
+    };
+
+    return labels[intent] || sanitizeInline(intent);
+}
+
+function formatActionLabel(action) {
+    if (!action || action === "none") {
+        return "Sin acción";
+    }
+
+    if (action.startsWith("ticket_created:")) {
+        return `Ticket creado · ${action.split(":")[1] || "sin ID"}`;
+    }
+
+    if (action === "plan_continued") {
+        return "Plan continuado";
+    }
+
+    if (action === "plan_waiting_confirmation") {
+        return "Pendiente de confirmación";
+    }
+
+    return action
+        .split(" | ")
+        .map((step) => step.replace(/_/g, " "))
+        .join(" · ");
+}
+
+function deriveHistoryStatus(action) {
+    const normalized = sanitizeInline(action).toLowerCase();
+
+    if (normalized.includes("blocked:")) {
+        return { label: "Bloqueado", tone: "warning" };
+    }
+
+    if (normalized.includes("ticket_created:")) {
+        return { label: "Ticket creado", tone: "success" };
+    }
+
+    if (normalized.includes("requires_confirmation") || normalized.includes("waiting_confirmation")) {
+        return { label: "Esperando confirmación", tone: "warning" };
+    }
+
+    if (normalized.includes("running")) {
+        return { label: "En progreso", tone: "info" };
+    }
+
+    if (normalized.includes("completed") || normalized.includes("plan_continued")) {
+        return { label: "Completado", tone: "success" };
+    }
+
+    return { label: "Registrado", tone: "neutral" };
+}
+
 function addBubble(text, type) {
     const wrapper = document.createElement("div");
     wrapper.classList.add("bubble-wrapper",
         type === "user" ? "bubble-wrapper-user" : "bubble-wrapper-ai");
 
-    if (type === "ai") {
-        const label = document.createElement("span");
-        label.className = "bubble-label";
-        label.textContent = "IA Panal";
-        wrapper.appendChild(label);
-    }
+    const meta = document.createElement("div");
+    meta.className = "bubble-meta";
+
+    const author = document.createElement("span");
+    author.className = "bubble-author";
+    author.textContent = type === "user" ? "Tú" : "IA Panal";
+
+    const timestamp = document.createElement("time");
+    timestamp.className = "bubble-time";
+    timestamp.dateTime = new Date().toISOString();
+    timestamp.textContent = formatTime(timestamp.dateTime);
+
+    meta.appendChild(author);
+    meta.appendChild(timestamp);
+    wrapper.appendChild(meta);
 
     const bubble = document.createElement("article");
     bubble.classList.add("bubble", type === "user" ? "bubble-user" : "bubble-ai");
@@ -145,6 +287,38 @@ function setAgentStatus(status) {
 
     agentStatusText.textContent = status;
     agentStatusBox.classList.remove("hidden");
+}
+
+// ── Toast system ───────────────────────────────────────────────────────────────
+function showToast(message, type = "info", duration = 4000) {
+    if (!toastContainer) return;
+
+    const icons = { success: "✔", info: "✦", warning: "⚠", error: "✕" };
+
+    const toast = document.createElement("div");
+    toast.className = `toast toast--${type}`;
+    toast.setAttribute("role", type === "error" ? "alert" : "status");
+    toast.innerHTML = `
+        <span class="toast-icon" aria-hidden="true">${icons[type] || "✦"}</span>
+        <span class="toast-message">${message}</span>
+        <button class="toast-close" type="button" aria-label="Cerrar notificación">✕</button>
+    `;
+
+    toastContainer.appendChild(toast);
+
+    let dismissTimer;
+
+    const dismiss = () => {
+        clearTimeout(dismissTimer);
+        if (toast.classList.contains("toast--exit")) return;
+        toast.classList.add("toast--exit");
+        toast.addEventListener("animationend", () => toast.remove(), { once: true });
+    };
+
+    toast.querySelector(".toast-close").addEventListener("click", dismiss);
+    dismissTimer = setTimeout(dismiss, duration);
+    toast.addEventListener("mouseenter", () => clearTimeout(dismissTimer));
+    toast.addEventListener("mouseleave", () => { dismissTimer = setTimeout(dismiss, 1500); });
 }
 
 function confidenceToPercent(confidence) {
@@ -197,12 +371,17 @@ function deriveAction(plan) {
         return "none";
     }
 
+    if (["sensitive_request", "abusive_request", "out_of_scope"].includes(plan.intent)) {
+        return `blocked:${plan.blocked_reason || plan.intent}`;
+    }
+
     if (plan.intent === "create_ticket" && plan.requires_confirmation) {
         return "create_ticket_pending_confirmation";
     }
 
-    if (Array.isArray(plan.steps) && plan.steps.length > 0) {
-        return plan.steps.map((step) => `${step.tool || "tool"}:${step.status || "ready"}`).join(" | ");
+    const steps = Array.isArray(plan.plan) ? plan.plan : plan.steps;
+    if (Array.isArray(steps) && steps.length > 0) {
+        return steps.map((step) => `${step.tool || "tool"}:${step.status || "ready"}`).join(" | ");
     }
 
     return plan.intent || "none";
@@ -245,30 +424,70 @@ function renderSessionHistory() {
         const item = document.createElement("li");
         item.className = "session-history-item";
 
-        const text = document.createElement("p");
-        text.className = "session-history-text";
-        text.textContent = entry.userText;
+        const marker = document.createElement("span");
+        marker.className = "session-history-marker";
+        marker.setAttribute("aria-hidden", "true");
 
-        const meta = document.createElement("div");
-        meta.className = "session-history-meta";
+        const content = document.createElement("div");
+        content.className = "session-history-content";
 
-        const intentChip = document.createElement("span");
-        intentChip.className = "history-chip";
-        intentChip.textContent = `intent: ${entry.intent}`;
+        const header = document.createElement("div");
+        header.className = "session-history-top";
 
-        const actionChip = document.createElement("span");
-        actionChip.className = "history-chip";
-        actionChip.textContent = `acción: ${entry.action}`;
+        const title = document.createElement("p");
+        title.className = "session-history-text";
+        title.textContent = entry.userText;
 
-        meta.appendChild(intentChip);
-        meta.appendChild(actionChip);
+        const time = document.createElement("time");
+        time.className = "session-history-time";
+        time.dateTime = entry.createdAt;
+        time.textContent = formatTime(entry.createdAt);
 
-        item.appendChild(text);
-        item.appendChild(meta);
+        header.appendChild(title);
+        header.appendChild(time);
+
+        const details = document.createElement("div");
+        details.className = "session-history-details";
+
+        const intentRow = document.createElement("div");
+        intentRow.className = "session-history-row";
+        intentRow.innerHTML = `
+            <span class="session-history-label">Intent detectado</span>
+            <span class="session-history-value">${formatIntentLabel(entry.intent)}</span>
+        `;
+
+        const actionRow = document.createElement("div");
+        actionRow.className = "session-history-row";
+        actionRow.innerHTML = `
+            <span class="session-history-label">Acción tomada</span>
+            <span class="session-history-value">${formatActionLabel(entry.action)}</span>
+        `;
+
+        const status = deriveHistoryStatus(entry.action);
+        const statusRow = document.createElement("div");
+        statusRow.className = "session-history-row";
+        statusRow.innerHTML = `
+            <span class="session-history-label">Estado final</span>
+            <span class="history-status history-status--${status.tone}">${status.label}</span>
+        `;
+
+        details.appendChild(intentRow);
+        details.appendChild(actionRow);
+        details.appendChild(statusRow);
+
+        content.appendChild(header);
+        content.appendChild(details);
+
+        item.appendChild(marker);
+        item.appendChild(content);
         sessionHistoryList.appendChild(item);
     });
 
     sessionHistoryCard.classList.remove("hidden");
+}
+
+function isBlockedIntent(intent) {
+    return ["sensitive_request", "abusive_request", "out_of_scope"].includes(intent);
 }
 
 function showActionDetection(action, confidence) {
@@ -277,6 +496,9 @@ function showActionDetection(action, confidence) {
         summary: "Resumen de tickets",
         classify: "Clasificación de tickets",
         create_ticket: "Creación de ticket",
+        sensitive_request: "Solicitud sensible bloqueada",
+        abusive_request: "Lenguaje no permitido",
+        out_of_scope: "Solicitud fuera de alcance",
     };
 
     const label = actionLabels[action] || action;
@@ -323,24 +545,48 @@ function renderSteps(steps) {
         return "<li class=\"plan-step\">Sin pasos</li>";
     }
 
-    return steps.map((step) => {
+    const statusIcons = {
+        pending: "⏳",
+        running: "◌",
+        completed: "✔",
+        requires_confirmation: "⏸",
+        ready: "✔"
+    };
+
+    const statusLabels = {
+        pending: "Pendiente",
+        running: "En curso",
+        completed: "Completado",
+        requires_confirmation: "Requiere confirmación",
+        ready: "Listo"
+    };
+
+    return steps.map((step, index) => {
         const status = step.status || "ready";
+        const icon = statusIcons[status] || "•";
         return `
-            <li class="plan-step">
-                <span class="plan-step-tool">${step.tool}</span>
-                <span class="plan-step-status plan-step-status--${status}">${status}</span>
+            <li class="plan-step" data-tool="${step.tool}">
+                <span class="plan-step-index">${index + 1}</span>
+                <div class="plan-step-body">
+                    <span class="plan-step-tool">${step.tool}</span>
+                    <span class="plan-step-helper">Paso del flujo del agente</span>
+                </div>
+                <span class="plan-step-status plan-step-status--${status}">${icon} ${statusLabels[status] || status}</span>
             </li>
         `;
     }).join("");
 }
 
 function renderPlanHeader(plan) {
+    const steps = Array.isArray(plan.plan) ? plan.plan : plan.steps;
+
     return `
         <div class="plan-box">
             <div class="draft-header">
                 <div class="draft-header-left">
                     <span class="draft-badge">Plan IA</span>
-                    <h2>Plan de ejecución: ${plan.intent}</h2>
+                    <h2>Plan de ejecución</h2>
+                    <p class="plan-intent-line">Objetivo detectado: <strong>${sanitizeInline(plan.intent)}</strong></p>
                 </div>
                 <span class="draft-confidence-badge">
                     Confianza: <strong>${confidenceToPercent(plan.confidence)}</strong>
@@ -365,9 +611,12 @@ function renderPlanHeader(plan) {
                 </div>
             </div>
             <p class="plan-message">${plan.message || "Plan generado"}</p>
-            <div class="draft-meta-item draft-meta-item-wide">
-                <span class="draft-meta-label">Pasos</span>
-                <ul class="plan-steps">${renderSteps(plan.steps)}</ul>
+            <div class="plan-steps-card draft-meta-item draft-meta-item-wide">
+                <div class="plan-steps-heading">
+                    <span class="draft-meta-label">Pasos del flujo</span>
+                    <span class="plan-steps-count">${Array.isArray(steps) ? steps.length : 0} pasos</span>
+                </div>
+                <ul class="plan-steps">${renderSteps(steps)}</ul>
             </div>
         </div>
     `;
@@ -375,21 +624,23 @@ function renderPlanHeader(plan) {
 
 function renderDraftPreview(preview) {
     return `
-        <div class="draft-header">
-            <div class="draft-header-left">
-                <span class="draft-badge">Preview borrador</span>
-                <h2>${preview.titulo || "-"}</h2>
+        <div class="preview-card">
+            <div class="draft-header">
+                <div class="draft-header-left">
+                    <span class="draft-badge">Preview borrador</span>
+                    <h2>${preview.titulo || "-"}</h2>
+                </div>
             </div>
-        </div>
-        <p class="draft-descripcion">${preview.descripcion || "-"}</p>
-        <div class="draft-meta">
-            <div class="draft-meta-item">
-                <span class="draft-meta-label">Prioridad</span>
-                <div id="previewPrioridad"></div>
-            </div>
-            <div class="draft-meta-item">
-                <span class="draft-meta-label">Categoría</span>
-                <div id="previewCategoria"></div>
+            <p class="draft-descripcion">${preview.descripcion || "-"}</p>
+            <div class="draft-meta draft-meta--preview">
+                <div class="draft-meta-item draft-meta-item--card">
+                    <span class="draft-meta-label">Prioridad</span>
+                    <div id="previewPrioridad" class="preview-chip-slot"></div>
+                </div>
+                <div class="draft-meta-item draft-meta-item--card">
+                    <span class="draft-meta-label">Categoría</span>
+                    <div id="previewCategoria" class="preview-chip-slot"></div>
+                </div>
             </div>
         </div>
     `;
@@ -397,39 +648,43 @@ function renderDraftPreview(preview) {
 
 function renderSummaryPreview(preview) {
     return `
-        <div class="draft-header">
-            <div class="draft-header-left">
-                <span class="draft-badge">Preview resumen</span>
-                <h2>Resumen de tickets</h2>
+        <div class="preview-card">
+            <div class="draft-header">
+                <div class="draft-header-left">
+                    <span class="draft-badge">Preview resumen</span>
+                    <h2>Resumen de tickets</h2>
+                </div>
             </div>
+            <p class="draft-descripcion">${preview.resumen || "Sin resumen disponible"}</p>
         </div>
-        <p class="draft-descripcion">${preview.resumen || "Sin resumen disponible"}</p>
     `;
 }
 
 function renderClassifyPreview(preview) {
     return `
-        <div class="draft-header">
-            <div class="draft-header-left">
-                <span class="draft-badge">Preview clasificación</span>
-                <h2>Clasificación del problema</h2>
+        <div class="preview-card">
+            <div class="draft-header">
+                <div class="draft-header-left">
+                    <span class="draft-badge">Preview clasificación</span>
+                    <h2>Clasificación del problema</h2>
+                </div>
+                <span class="draft-confidence-badge">
+                    Confianza: <strong>${typeof preview.confidence === "number" ? (preview.confidence * 100).toFixed(0) : "-"}%</strong>
+                </span>
             </div>
-            <span class="draft-confidence-badge">
-                Confianza: <strong>${typeof preview.confidence === "number" ? (preview.confidence * 100).toFixed(0) : "-"}%</strong>
-            </span>
-        </div>
-        <div class="draft-meta">
-            <div class="draft-meta-item">
-                <span class="draft-meta-label">Prioridad</span>
-                <div id="classifyPreviewPrioridad"></div>
-            </div>
-            <div class="draft-meta-item">
-                <span class="draft-meta-label">Categoría</span>
-                <div id="classifyPreviewCategoria"></div>
-            </div>
-            <div class="draft-meta-item draft-meta-item-wide">
-                <span class="draft-meta-label">Justificación</span>
-                <p class="summary-recomendacion">${preview.justificacion || "Sin justificación disponible"}</p>
+            <div class="draft-meta draft-meta--preview">
+                <div class="draft-meta-item draft-meta-item--card">
+                    <span class="draft-meta-label">Prioridad</span>
+                    <div id="classifyPreviewPrioridad" class="preview-chip-slot"></div>
+                </div>
+                <div class="draft-meta-item draft-meta-item--card">
+                    <span class="draft-meta-label">Categoría</span>
+                    <div id="classifyPreviewCategoria" class="preview-chip-slot"></div>
+                </div>
+                <div class="draft-meta-item draft-meta-item-wide draft-meta-item--card">
+                    <span class="draft-meta-label">Justificación</span>
+                    <p class="summary-recomendacion">${preview.justificacion || "Sin justificación disponible"}</p>
+                </div>
             </div>
         </div>
     `;
@@ -442,6 +697,15 @@ function renderConfirmationCard(preview) {
                 <div class="draft-header-left">
                     <span class="draft-badge">Confirmación requerida</span>
                     <h2>Creación segura de ticket</h2>
+                    <p class="confirmation-lead">El agente ya preparó el borrador. Revisa la información y confirma para ejecutar este paso.</p>
+                </div>
+            </div>
+
+            <div class="confirmation-notice">
+                <span class="confirmation-notice-icon" aria-hidden="true">⏸</span>
+                <div>
+                    <strong>Este flujo requiere una acción tuya</strong>
+                    <p>El ticket no se guardará hasta que confirmes explícitamente la creación.</p>
                 </div>
             </div>
 
@@ -471,10 +735,29 @@ function renderConfirmationCard(preview) {
     `;
 }
 
+function renderBlockedCard(plan) {
+    return `
+        <div class="blocked-card blocked-card--${plan.blocked_reason || "default"}">
+            <div class="blocked-card-icon" aria-hidden="true">⚠</div>
+            <div class="blocked-card-body">
+                <span class="draft-badge">Solicitud bloqueada</span>
+                <h2>${formatIntentLabel(plan.intent)}</h2>
+                <p class="draft-descripcion">${plan.message || STATUS_COPY.blocked}</p>
+                <div class="blocked-guidance">
+                    <span class="draft-meta-label">Qué sí puedo hacer</span>
+                    <p>${plan.guidance || "Puedo ayudarte con tickets, clasificación y resúmenes de soporte dentro de Panal."}</p>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
 function renderPlan(plan) {
     let previewHtml = "";
 
-    if (plan.intent === "create_ticket" && plan.requires_confirmation && plan.draft_preview) {
+    if (isBlockedIntent(plan.intent)) {
+        previewHtml = renderBlockedCard(plan);
+    } else if (plan.intent === "create_ticket" && plan.requires_confirmation && plan.draft_preview) {
         previewHtml = renderConfirmationCard(plan.draft_preview);
     } else if (plan.draft_preview) {
         previewHtml = renderDraftPreview(plan.draft_preview);
@@ -515,7 +798,7 @@ function renderPlan(plan) {
     if (plan.intent === "create_ticket" && plan.requires_confirmation && plan.draft_preview) {
         const confirmCreateBtn = document.getElementById("confirmCreateBtn");
         if (confirmCreateBtn) {
-            confirmCreateBtn.addEventListener("click", () => executeConfirmedAction(plan.draft_preview, plan.ai_log_id));
+            confirmCreateBtn.addEventListener("click", () => executeConfirmedAction(plan.ai_log_id));
         }
     }
 
@@ -536,6 +819,7 @@ async function parseErrorResponse(response) {
 
 // ── Handle plan response ───────────────────────────────────────────────────────
 async function handleAgentResponse() {
+    const requestNonce = activeConversationNonce;
     hideError();
     const text = problemInput.value.trim();
 
@@ -565,23 +849,32 @@ async function handleAgentResponse() {
         }
 
         const plan = await response.json();
+        if (requestNonce !== activeConversationNonce) {
+            return;
+        }
+
         currentPlan = plan;
 
         setAgentStatus(getStatusCopy(plan.intent, "planning"));
 
         if (plan.session_id && typeof plan.session_id === "string") {
-            currentSessionId = plan.session_id;
-            window.localStorage.setItem(SESSION_STORAGE_KEY, currentSessionId);
+            persistSessionId(plan.session_id);
         }
 
         showActionDetection(plan.intent, plan.confidence);
 
-        if (plan.intent === "create_ticket" && plan.requires_confirmation) {
+        if (isBlockedIntent(plan.intent)) {
+            setAgentStatus(getStatusCopy(plan.intent, "ready"));
+            addBubble(plan.message || STATUS_COPY.blocked, "ai");
+            showToast(plan.message || STATUS_COPY.blocked, "warning", 6000);
+        } else if (plan.intent === "create_ticket" && plan.requires_confirmation) {
             setAgentStatus(STATUS_COPY.waitingConfirmation);
             addBubble("Revisa el plan y confirma para continuar.", "ai");
+            showToast("Plan generado. Revisa y confirma para guardar el ticket.", "warning", 6000);
         } else {
             setAgentStatus(getStatusCopy(plan.intent, "ready"));
             addBubble(STATUS_COPY.planReady, "ai");
+            showToast(getStatusCopy(plan.intent, "ready"), "success");
         }
 
         renderPlan(plan);
@@ -591,7 +884,9 @@ async function handleAgentResponse() {
             action: deriveAction(plan)
         });
 
-        if (!(plan.intent === "create_ticket" && plan.requires_confirmation)) {
+        if (isBlockedIntent(plan.intent)) {
+            setAgentStatus(STATUS_COPY.blocked);
+        } else if (!(plan.intent === "create_ticket" && plan.requires_confirmation)) {
             setAgentStatus(STATUS_COPY.completed);
         }
 
@@ -600,57 +895,86 @@ async function handleAgentResponse() {
         showError(mapFriendlyError(error.message));
         setAgentStatus(STATUS_COPY.error);
         setResultPlaceholderVisibility(true);
+        showToast(mapFriendlyError(error.message), "error");
     } finally {
         setTyping(false);
     }
 }
 
 // ── Execute confirmed action ───────────────────────────────────────────────────
-async function executeConfirmedAction(draftPreview, aiLogId) {
+async function executeConfirmedAction(aiLogId) {
     const confirmErrorBox = document.getElementById("confirmErrorBox");
     const confirmLoadingBox = document.getElementById("confirmLoadingBox");
     const confirmSuccessBox = document.getElementById("confirmSuccessBox");
     const confirmTicketId = document.getElementById("confirmTicketId");
     const confirmCreateBtn = document.getElementById("confirmCreateBtn");
 
-    if (!draftPreview || !confirmCreateBtn) return;
+    if (!aiLogId || !confirmCreateBtn) return;
+
+    const requestNonce = activeConversationNonce;
 
     confirmErrorBox.classList.add("hidden");
+    confirmSuccessBox.classList.add("hidden");
     confirmLoadingBox.classList.remove("hidden");
     confirmCreateBtn.disabled = true;
     setAgentStatus(STATUS_COPY.savingTicket);
 
     try {
-        const response = await fetch(SAVE_URL, {
+        const response = await fetch(CONTINUE_URL, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                titulo: draftPreview.titulo,
-                descripcion: draftPreview.descripcion,
-                prioridad: draftPreview.prioridad,
-                categoria: draftPreview.categoria,
                 ai_log_id: aiLogId,
             }),
         });
 
         if (!response.ok) throw new Error(await parseErrorResponse(response));
 
-        const ticket = await response.json();
-        confirmSuccessBox.classList.remove("hidden");
-        confirmTicketId.textContent = "ID: " + ticket._id;
-        confirmCreateBtn.innerHTML = "✔ Ticket creado";
-        setAgentStatus(STATUS_COPY.completed);
-        addBubble(`Ticket creado correctamente. ticket_id: ${ticket._id}`, "ai");
-        updateLastHistoryAction(`ticket_created:${ticket._id}`);
+        const continuation = await response.json();
+        if (requestNonce !== activeConversationNonce) {
+            return;
+        }
 
-        if (currentPlan && currentPlan.intent === "create_ticket") {
-            currentPlan.requires_confirmation = false;
+        const ticketId = continuation?.execution_result?.ticket_id;
+        const requiresMoreConfirmation = Boolean(continuation?.requires_confirmation);
+
+        if (!requiresMoreConfirmation) {
+            confirmSuccessBox.classList.remove("hidden");
+            confirmTicketId.textContent = ticketId ? `ID: ${ticketId}` : "Plan continuado sin ticket final.";
+            confirmCreateBtn.innerHTML = ticketId ? "✔ Ticket creado" : "✔ Plan continuado";
+            setAgentStatus(STATUS_COPY.completed);
+            addBubble(
+                ticketId
+                    ? `Ticket creado correctamente. ticket_id: ${ticketId}`
+                    : "Plan continuado correctamente.",
+                "ai"
+            );
+            if (ticketId) {
+                showToast(`Ticket creado correctamente · ID: ${ticketId}`, "success", 6000);
+                updateLastHistoryAction(`ticket_created:${ticketId}`);
+            } else {
+                showToast("Acción completada correctamente.", "success");
+                updateLastHistoryAction("plan_continued");
+            }
+        } else {
+            confirmCreateBtn.disabled = false;
+            confirmCreateBtn.innerHTML = "✔ Confirmar siguiente paso";
+            setAgentStatus(STATUS_COPY.waitingConfirmation);
+            addBubble("Se completaron pasos intermedios; se requiere nueva confirmación.", "ai");
+            showToast("Se completaron pasos intermedios. Se requiere nueva confirmación.", "warning", 6000);
+            updateLastHistoryAction("plan_waiting_confirmation");
+        }
+
+        if (continuation && typeof continuation === "object") {
+            currentPlan = continuation;
+            renderPlan(currentPlan);
         }
     } catch (error) {
         confirmErrorBox.textContent = mapFriendlyError(error.message);
         confirmErrorBox.classList.remove("hidden");
         confirmCreateBtn.disabled = false;
         setAgentStatus(STATUS_COPY.waitingConfirmation);
+        showToast(mapFriendlyError(error.message), "error");
     } finally {
         confirmLoadingBox.classList.add("hidden");
     }
@@ -658,10 +982,10 @@ async function executeConfirmedAction(draftPreview, aiLogId) {
 
 // ── Event listeners ────────────────────────────────────────────────────────────
 generateBtn.addEventListener("click", handleAgentResponse);
+newConversationBtn.addEventListener("click", startNewConversation);
 
 problemInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) handleAgentResponse();
 });
 
-setAgentStatus(STATUS_COPY.initial);
-setResultPlaceholderVisibility(true);
+resetConversationView();

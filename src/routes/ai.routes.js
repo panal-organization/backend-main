@@ -8,6 +8,7 @@ const router = Router();
 // Agent router: decide action and execute it (JWT optional, falls back to demo mode)
 router.post('/agent', optionalAuthMiddleware, AIController.routeAgent.bind(AIController));
 router.post('/agent/plan', optionalAuthMiddleware, AIController.planAgent.bind(AIController));
+router.post('/agent/continue', optionalAuthMiddleware, AIController.continueAgentPlan.bind(AIController));
 
 // Ruta protegida con JWT
 router.post('/tickets/draft', authMiddleware, AIController.createTicketDraft.bind(AIController));

@@ -2,7 +2,8 @@ const mongoose = require('mongoose');
 const Tickets = require('../models/tickets.model');
 const Workspaces = require('../models/workspaces.model');
 const WorkspacesUsuarios = require('../models/workspaces_usuarios.model');
-const AILogsService = require('./ai-logs.service');
+const Usuarios = require('../models/usuarios.model');
+const EmailService = require('./email.service');
 
 const ALLOWED_PRIORITIES = ['BAJA', 'ALTA', 'CRITICA'];
 const ALLOWED_CATEGORIES = ['SOPORTE', 'MEJORA'];
@@ -34,19 +35,52 @@ class TicketsFromAIService {
 
         const ticket = await Tickets.create(payload);
 
-        if (aiLogId) {
-            await AILogsService.markExecuted({
-                logId: aiLogId,
-                userId: actor.userId,
-                workspaceId: actor.workspaceId,
-                executionResult: {
-                    status: 'ticket_created',
-                    ticket_id: ticket._id.toString()
-                }
-            });
-        }
+        console.log(`🎫 Ticket creado desde IA: ${ticket._id} | usuario=${actor.userId} | workspace=${actor.workspaceId}`);
+        console.log(`📨 Disparando flujo de notificación por email para ticket ${ticket._id}`);
+        this.sendTicketNotificationAsync({ ticket, userId: actor.userId });
 
         return ticket;
+    }
+
+    /**
+     * Envía notificación de email de forma asincrónica sin bloquear
+     */
+    async sendTicketNotificationAsync({ ticket, userId }) {
+        try {
+            console.log(`🔎 Buscando correo del usuario ${userId} para ticket ${ticket._id}`);
+            const user = await Usuarios.findById(userId);
+
+            if (!user || !user.correo) {
+                console.warn(`⚠️  No se pudo obtener email para usuario ${userId}`);
+                return;
+            }
+
+            console.log(`👤 Usuario resuelto para notificaciones: ${user.nombre || 'Sin nombre'} <${user.correo}>`);
+
+            const ticketData = {
+                ...ticket.toObject(),
+                userEmail: user.correo
+            };
+
+            const notificationResult = await EmailService.sendTicketCreatedNotification({
+                ticket: ticketData,
+                userEmail: user.correo,
+                userName: user.nombre
+            });
+
+            if (notificationResult?.ok) {
+                console.log(`✅ Flujo de notificación completado para ticket ${ticket._id}`);
+                return;
+            }
+
+            console.warn(`⚠️  Flujo de notificación finalizó con problemas para ticket ${ticket._id}:`, notificationResult);
+        } catch (error) {
+            console.error(`❌ Error en envío de notificación de email para ticket ${ticket._id}:`, {
+                message: error.message,
+                code: error.code || null,
+                response: error.response || null
+            });
+        }
     }
 
     validateDraftInput(draft) {

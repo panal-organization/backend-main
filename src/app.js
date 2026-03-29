@@ -1,10 +1,9 @@
+require('dotenv').config(); // Must be first — services read process.env on module load
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const connectDB = require('./config/db');
 const routes = require('./routes/index');
-
-require('dotenv').config();
 
 const app = express();
 const setupSwagger = require('./config/swagger');
