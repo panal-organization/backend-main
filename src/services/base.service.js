@@ -21,12 +21,14 @@ class BaseService {
 
             if (value === undefined || value === '') return;
 
-            //Boolean
-            if (value === 'true') value = true;
-            if (value === 'false') value = false;
-
-            //Number
-            else if (!isNaN(value) && value.trim() !== '') {
+            //Boolean conversion
+            if (value === 'true') {
+                value = true;
+            } else if (value === 'false') {
+                value = false;
+            }
+            //Number conversion (ensure value is string before trim)
+            else if (typeof value === 'string' && value.trim() !== '' && !isNaN(value)) {
                 value = Number(value);
             }
 

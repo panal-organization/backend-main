@@ -4,9 +4,9 @@ const crypto = require('crypto');
 
 const WorkspaceSchema = new Schema({
     nombre: { type: String, required: true },
-    codigo: { 
-        type: String, 
-        unique: true, 
+    codigo: {
+        type: String,
+        unique: true,
         default: () => crypto.randomBytes(4).toString('hex')
     },
     admin_id: { type: Schema.Types.ObjectId, ref: 'USUARIOS' },
@@ -18,7 +18,7 @@ const WorkspaceSchema = new Schema({
 });
 
 // Hook para crear automáticamente la relación con el admin al crear el workspace
-WorkspaceSchema.post('save', async function(doc) {
+WorkspaceSchema.post('save', async function (doc) {
     if (doc.admin_id) {
         // 1. Crear relación en WORKSPACES_USUARIOS
         const WorkspacesUsuarios = mongoose.model('WORKSPACES_USUARIOS');
@@ -26,7 +26,7 @@ WorkspaceSchema.post('save', async function(doc) {
             workspace_id: doc._id,
             usuario_id: doc.admin_id
         });
-        
+
         if (!existing) {
             await WorkspacesUsuarios.create({
                 workspace_id: doc._id,
