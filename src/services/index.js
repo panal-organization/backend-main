@@ -7,6 +7,7 @@ module.exports = {
     TicketsFromAIService: require('./tickets-from-ai.service'),
     InventoryService: require('./inventory.service'),
     EmailService: require('./email.service'),
+    SubscriptionValidationService: require('./subscription-validation.service'),
     EstadoTicketsService: new BaseService(require('../models/estado_tickets.model')),
     EstadoOrdenService: new BaseService(require('../models/estado_orden.model')),
     TicketsService: new BaseService(require('../models/tickets.model')),

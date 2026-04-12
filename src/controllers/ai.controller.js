@@ -1,5 +1,5 @@
 const { randomUUID } = require('crypto');
-const { AIService, AILogsService, AgentMemoryService, TicketsFromAIService, InventoryService } = require('../services');
+const { AIService, AILogsService, AgentMemoryService, TicketsFromAIService, InventoryService, SubscriptionValidationService } = require('../services');
 const Workspaces = require('../models/workspaces.model');
 const WorkspacesUsuarios = require('../models/workspaces_usuarios.model');
 const Tickets = require('../models/tickets.model');
@@ -195,8 +195,8 @@ class AIController {
         }
 
         const rawLower = typeof text === 'string' ? text.toLowerCase() : '';
-        const hasInventoryDomain = /\b(inventar|articul|almac|stock|existenc|minim|critic)\w*/.test(normalized)
-            || /\b(inventar|articul|almac|stock|existenc|minim|critic)\w*/.test(rawLower);
+        const hasInventoryDomain = /\b(inventar|articul|almac|stock|existenc|minim)\w*/.test(normalized)
+            || /\b(inventar|articul|almac|stock|existenc|minim)\w*/.test(rawLower);
         if (!hasInventoryDomain) {
             return null;
         }
@@ -242,6 +242,136 @@ class AIController {
 
         // Default inventory intent when user asks about inventory without explicit action.
         return 'inventory_summary';
+    }
+
+    isShortFollowUpText(text) {
+        const normalized = this.normalizeText(text);
+        if (!normalized) {
+            return false;
+        }
+
+        const words = normalized.split(' ').filter(Boolean);
+        if (words.length <= 6) {
+            return true;
+        }
+
+        return /^y\b/.test(normalized)
+            || /^(entonces|ok|vale|bien|ahora)\b/.test(normalized);
+    }
+
+    detectTicketSummaryFilter(text) {
+        const normalized = this.normalizeText(text);
+        if (!normalized) {
+            return null;
+        }
+
+        if (/\bpendient(e|es)\b/.test(normalized)) {
+            return { type: 'estado', value: 'PENDIENTE', label: 'pendientes' };
+        }
+
+        if (/\bresuelt(o|a|os|as)\b/.test(normalized)) {
+            return { type: 'estado', value: 'RESUELTO', label: 'resueltos' };
+        }
+
+        if (/\bcritic(o|a|os|as)\b/.test(normalized)) {
+            return { type: 'prioridad', value: 'CRITICA', label: 'críticos' };
+        }
+
+        if (/\balta(s)?\b/.test(normalized) && /\bprioridad\b/.test(normalized)) {
+            return { type: 'prioridad', value: 'ALTA', label: 'alta prioridad' };
+        }
+
+        if (/\bbaja(s)?\b/.test(normalized) && /\bprioridad\b/.test(normalized)) {
+            return { type: 'prioridad', value: 'BAJA', label: 'baja prioridad' };
+        }
+
+        return null;
+    }
+
+    resolveFollowUpIntentFromContext({ text, lastContextType, lastIntent }) {
+        const normalized = this.normalizeText(text);
+        if (!normalized) {
+            return null;
+        }
+
+        const shortFollowUp = this.isShortFollowUpText(text);
+        const explicitSummary = /\b(resumen|resume|resumeme|sumario|sintesis|cuantos|cuantas|total)\b/.test(normalized);
+        const explicitTicketSignal = /\b(ticket|tickets|pendient|resuelt|critic|prioridad|estado)\b/.test(normalized);
+        const conversationalLead = /^(y|y\s+los|y\s+las|los|las|dime|hazme|cuantos|cuantas|y\s+cuantos|y\s+cuantas)\b/.test(normalized);
+
+        if (lastContextType === 'tickets' && (explicitSummary || explicitTicketSignal || conversationalLead)) {
+            return 'summary';
+        }
+
+        const inventoryFollowUpSignal = /\b(alerta|alertas|critico|critica|criticos|stock|bajo|minimo|minimos|almacen|articulo|articulos)\b/.test(normalized);
+        if (lastContextType === 'inventory' && (shortFollowUp || inventoryFollowUpSignal)) {
+            const inventoryIntent = this.detectInventoryIntent(text);
+            return inventoryIntent || 'inventory_summary';
+        }
+
+        if (lastIntent === 'summary' && (explicitSummary || explicitTicketSignal || conversationalLead)) {
+            return 'summary';
+        }
+
+        const explicitInventorySignal = /\b(inventario|stock|almacen|articulo|articulos|existencias)\b/.test(normalized);
+        if (!explicitInventorySignal && (explicitSummary || explicitTicketSignal)) {
+            return 'summary';
+        }
+
+        return null;
+    }
+
+    buildTicketSummaryFromFilter({ tickets, filter }) {
+        const total = Array.isArray(tickets) ? tickets.length : 0;
+        const normalizedTickets = (Array.isArray(tickets) ? tickets : []).map((ticket) => ({
+            estado: (ticket.estado || '').toString().trim().toUpperCase(),
+            prioridad: (ticket.prioridad || '').toString().trim().toUpperCase()
+        }));
+
+        if (!filter) {
+            const pendientes = normalizedTickets.filter((ticket) => ticket.estado === 'PENDIENTE').length;
+            const criticos = normalizedTickets.filter((ticket) => ticket.prioridad === 'CRITICA').length;
+            return {
+                resumen: `Hay ${total} tickets en total. Pendientes: ${pendientes}. Críticos: ${criticos}.`,
+                total_tickets: total,
+                tickets_pendientes: pendientes,
+                tickets_criticos: criticos
+            };
+        }
+
+        const matched = normalizedTickets.filter((ticket) => {
+            if (filter.type === 'estado') {
+                return ticket.estado === filter.value;
+            }
+            if (filter.type === 'prioridad') {
+                return ticket.prioridad === filter.value;
+            }
+            return false;
+        }).length;
+
+        return {
+            resumen: `Hay ${matched} tickets ${filter.label} de un total de ${total}.`,
+            total_tickets: total,
+            total_filtrados: matched,
+            filtro: {
+                tipo: filter.type,
+                valor: filter.value,
+                etiqueta: filter.label
+            }
+        };
+    }
+
+    shouldUseLocalTicketSummary(text) {
+        const normalized = this.normalizeText(text);
+        if (!normalized) {
+            return false;
+        }
+
+        if (this.detectTicketSummaryFilter(text)) {
+            return true;
+        }
+
+        return /\b(cuantos|cuantas|total|resumen|pendient|critic|prioridad|estado)\b/.test(normalized);
     }
 
     buildInventoryListMessage(items) {
@@ -475,6 +605,23 @@ class AIController {
                 return { requiresConfirmation: false };
             }
 
+            const followUpFilter = this.detectTicketSummaryFilter(trimmedText);
+            if (followUpFilter) {
+                previews.summary_preview = this.buildTicketSummaryFromFilter({
+                    tickets: dbTickets,
+                    filter: followUpFilter
+                });
+                return { requiresConfirmation: false };
+            }
+
+            if (this.shouldUseLocalTicketSummary(trimmedText)) {
+                previews.summary_preview = this.buildTicketSummaryFromFilter({
+                    tickets: dbTickets,
+                    filter: null
+                });
+                return { requiresConfirmation: false };
+            }
+
             let scope = 'generic';
             const textLower = trimmedText.toLowerCase();
             if (textLower.includes('hoy') || textLower.includes('día') || textLower.includes('diario')) {
@@ -657,26 +804,43 @@ class AIController {
     }
 
     async resolveExecutionContext(req, requestedWorkspaceId) {
+        // MODO REAL (con JWT + Suscripción válida)
         if (req.jwt?.sub) {
             const userId = req.jwt.sub;
+
+            // Validar que el usuario tenga suscripción activa
+            const subscriptionCheck = await SubscriptionValidationService.validateUserSubscription(userId);
+
+            if (!subscriptionCheck.isActive) {
+                const error = new Error(subscriptionCheck.reason || 'Tu suscripción no se encuentra activa para usar el asistente IA.');
+                error.status = 403;
+                error.code = 'SUBSCRIPTION_INACTIVE';
+                throw error;
+            }
+
+            // Usuario autenticado con suscripción válida
             const workspaceId = await this.resolveWorkspaceId(userId, requestedWorkspaceId);
-            return { userId, workspaceId, mode: 'jwt' };
+            return { userId, workspaceId, mode: 'jwt', user: subscriptionCheck.user };
         }
 
+        // MODO DEMO (solo si está explícitamente habilitado)
         if (process.env.AI_DEMO_MODE === 'true') {
             const userId = process.env.AI_DEMO_USER_ID;
             const workspaceId = process.env.AI_DEMO_WORKSPACE_ID;
 
             if (!userId || !workspaceId) {
-                const error = new Error('Variables de demo no configuradas correctamente');
+                const error = new Error('Variables de demostración no configuradas correctamente');
                 error.status = 500;
                 throw error;
             }
 
+            console.warn(`⚠️  API IA funcionando en MODO DEMO (AI_DEMO_MODE=true). Usuario: ${userId}, Workspace: ${workspaceId}`);
+
             return { userId, workspaceId, mode: 'demo' };
         }
 
-        const error = new Error('Autenticación requerida');
+        // No hay JWT y no está en modo demo: acceso denegado
+        const error = new Error('Autenticación requerida. Por favor inicia sesión para usar el asistente IA.');
         error.status = 401;
         throw error;
     }
@@ -854,8 +1018,21 @@ class AIController {
                 workspaceId: context.workspaceId,
                 sessionId
             });
+            const lastContext = await AgentMemoryService.getLastContext({
+                userId: context.userId,
+                workspaceId: context.workspaceId,
+                sessionId
+            });
+            const followUpIntent = this.resolveFollowUpIntentFromContext({
+                text: trimmedText,
+                lastContextType: lastContext.lastContextType,
+                lastIntent: lastContext.lastIntent
+            });
 
-            const policy = this.evaluateRequestPolicy(trimmedText);
+            let policy = this.evaluateRequestPolicy(trimmedText);
+            if (policy && policy.reason === 'out_of_scope' && followUpIntent) {
+                policy = null;
+            }
             if (policy) {
                 const { log } = await this.buildBlockedAgentResponse({
                     context,
@@ -884,9 +1061,15 @@ class AIController {
             let baseAction;
             let confidence;
 
-            if (directInventoryIntent) {
+            if (followUpIntent === 'summary') {
+                baseAction = followUpIntent;
+                confidence = 0.92;
+            } else if (directInventoryIntent) {
                 baseAction = directInventoryIntent;
                 confidence = 0.98;
+            } else if (followUpIntent) {
+                baseAction = followUpIntent;
+                confidence = 0.92;
             } else {
                 const decision = await AIService.decideAction({
                     text: trimmedText,
@@ -939,6 +1122,10 @@ class AIController {
 
             if (!requiresConfirmation) {
                 finalMessage = 'Plan ejecutado correctamente.';
+            }
+
+            if (previews.summary_preview?.resumen) {
+                finalMessage = previews.summary_preview.resumen;
             }
 
             if (previews.inventory_message) {
@@ -1213,7 +1400,21 @@ class AIController {
                 workspaceId: context.workspaceId,
                 sessionId
             });
-            const policy = this.evaluateRequestPolicy(trimmedText);
+            const lastContext = await AgentMemoryService.getLastContext({
+                userId: context.userId,
+                workspaceId: context.workspaceId,
+                sessionId
+            });
+            const followUpIntent = this.resolveFollowUpIntentFromContext({
+                text: trimmedText,
+                lastContextType: lastContext.lastContextType,
+                lastIntent: lastContext.lastIntent
+            });
+
+            let policy = this.evaluateRequestPolicy(trimmedText);
+            if (policy && policy.reason === 'out_of_scope' && followUpIntent) {
+                policy = null;
+            }
             if (policy) {
                 const { log } = await this.buildBlockedAgentResponse({
                     context,
@@ -1240,9 +1441,15 @@ class AIController {
             let action;
             let confidence;
 
-            if (directInventoryIntent) {
+            if (followUpIntent === 'summary') {
+                action = followUpIntent;
+                confidence = 0.92;
+            } else if (directInventoryIntent) {
                 action = directInventoryIntent;
                 confidence = 0.98;
+            } else if (followUpIntent) {
+                action = followUpIntent;
+                confidence = 0.92;
             } else {
                 const decision = await AIService.decideAction({
                     text: trimmedText,
@@ -1508,6 +1715,65 @@ class AIController {
                         finalAction: action,
                         result: emptyResult,
                         message: 'Resumen generado. No hay tickets en este workspace para analizar.'
+                    });
+                }
+
+                const followUpFilter = this.detectTicketSummaryFilter(trimmedText);
+                if (followUpFilter) {
+                    const contextualSummary = this.buildTicketSummaryFromFilter({
+                        tickets: dbTickets,
+                        filter: followUpFilter
+                    });
+
+                    const log = await this.createInteractionLog({
+                        userId: context.userId,
+                        workspaceId: context.workspaceId,
+                        mode: context.mode,
+                        source: 'agent',
+                        userText: trimmedText,
+                        intent: action,
+                        confidence,
+                        requiresConfirmation: false,
+                        steps: [{ tool: 'summary', status: 'executed' }],
+                        previewResumen: { summary_preview: contextualSummary },
+                        executed: true,
+                        executionResult: { status: 'completed' }
+                    });
+
+                    return finalizeRoute({
+                        aiLogId: log._id,
+                        finalAction: action,
+                        result: contextualSummary,
+                        message: contextualSummary.resumen
+                    });
+                }
+
+                if (this.shouldUseLocalTicketSummary(trimmedText)) {
+                    const contextualSummary = this.buildTicketSummaryFromFilter({
+                        tickets: dbTickets,
+                        filter: null
+                    });
+
+                    const log = await this.createInteractionLog({
+                        userId: context.userId,
+                        workspaceId: context.workspaceId,
+                        mode: context.mode,
+                        source: 'agent',
+                        userText: trimmedText,
+                        intent: action,
+                        confidence,
+                        requiresConfirmation: false,
+                        steps: [{ tool: 'summary', status: 'executed' }],
+                        previewResumen: { summary_preview: contextualSummary },
+                        executed: true,
+                        executionResult: { status: 'completed' }
+                    });
+
+                    return finalizeRoute({
+                        aiLogId: log._id,
+                        finalAction: action,
+                        result: contextualSummary,
+                        message: contextualSummary.resumen
                     });
                 }
 

@@ -64,6 +64,103 @@ class AgentMemoryService {
         };
     }
 
+    inferContextTypeFromIntent(intent) {
+        const normalized = this.normalizeText(intent);
+        if (!normalized) {
+            return null;
+        }
+
+        if (normalized.startsWith('inventory_')) {
+            return 'inventory';
+        }
+
+        if (['draft', 'classify', 'create_ticket', 'summary'].includes(normalized)) {
+            return 'tickets';
+        }
+
+        return null;
+    }
+
+    inferContextTypeFromSummary(summary) {
+        if (typeof summary !== 'string' || !summary.trim()) {
+            return null;
+        }
+
+        const parsed = this.tryParseJson(summary);
+        if (!parsed || typeof parsed !== 'object') {
+            return null;
+        }
+
+        const keys = Object.keys(parsed);
+        if (keys.some((key) => key.startsWith('inventory_'))) {
+            return 'inventory';
+        }
+
+        if (keys.some((key) => ['draft_preview', 'summary_preview', 'classify_preview', 'plan'].includes(key))) {
+            return 'tickets';
+        }
+
+        return null;
+    }
+
+    inferContextTypeFromEntry(entry) {
+        if (!entry || typeof entry !== 'object') {
+            return null;
+        }
+
+        return this.inferContextTypeFromIntent(entry.intent)
+            || this.inferContextTypeFromSummary(entry.result_summary)
+            || null;
+    }
+
+    async getLastContext({ userId, workspaceId, sessionId }) {
+        const context = await this.getRecentContext({ userId, workspaceId, sessionId });
+        if (!Array.isArray(context) || context.length === 0) {
+            return {
+                lastIntent: null,
+                lastContextType: null,
+                lastResultSummary: null,
+                lastAssistantText: null,
+                lastUserText: null
+            };
+        }
+
+        let lastAssistant = null;
+        let lastUser = null;
+        let lastContextType = null;
+
+        for (let index = context.length - 1; index >= 0; index -= 1) {
+            const entry = context[index];
+            if (!lastAssistant && entry.role === 'assistant') {
+                lastAssistant = entry;
+            }
+            if (!lastUser && entry.role === 'user') {
+                lastUser = entry;
+            }
+
+            if (!lastContextType) {
+                lastContextType = this.inferContextTypeFromEntry(entry);
+            }
+
+            if (lastAssistant && lastUser && lastContextType) {
+                break;
+            }
+        }
+
+        return {
+            lastIntent: lastAssistant?.intent || null,
+            lastContextType,
+            lastResultSummary: lastAssistant?.result_summary || null,
+            lastAssistantText: lastAssistant?.text || null,
+            lastUserText: lastUser?.text || null
+        };
+    }
+
+    async getLastContextType({ userId, workspaceId, sessionId }) {
+        const lastContext = await this.getLastContext({ userId, workspaceId, sessionId });
+        return lastContext.lastContextType;
+    }
+
     extractPreview(entry, previewKey) {
         if (!entry || typeof entry !== 'object') {
             return null;

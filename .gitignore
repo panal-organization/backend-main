@@ -155,3 +155,5 @@ vite.config.ts.timestamp-*
 
 # Ignore uploads folder
 uploads/
+
+*.bat

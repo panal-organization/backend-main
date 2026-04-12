@@ -1225,7 +1225,7 @@ const swaggerDefinition = {
         version: '1.0.0',
         description: 'Generated Swagger API documentation for Mongodb resources'
     },
-    servers: [{ url: 'http://localhost:3000' }],
+    servers: [{ url: '/' }],
     components: components,
     paths: paths
 };

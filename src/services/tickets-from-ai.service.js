@@ -4,6 +4,7 @@ const Workspaces = require('../models/workspaces.model');
 const WorkspacesUsuarios = require('../models/workspaces_usuarios.model');
 const Usuarios = require('../models/usuarios.model');
 const EmailService = require('./email.service');
+const SubscriptionValidationService = require('./subscription-validation.service');
 
 const ALLOWED_PRIORITIES = ['BAJA', 'ALTA', 'CRITICA'];
 const ALLOWED_CATEGORIES = ['SOPORTE', 'MEJORA'];
@@ -220,34 +221,49 @@ class TicketsFromAIService {
     }
 
     async resolveActorContext({ jwtUserId, demoModeEnabled, demoUserId, demoWorkspaceId }) {
+        // MODO REAL: Usuario autenticado con JWT
         if (jwtUserId) {
+            // Validar que el usuario tenga suscripción activa
+            const subscriptionCheck = await SubscriptionValidationService.validateUserSubscription(jwtUserId);
+
+            if (!subscriptionCheck.isActive) {
+                const error = new Error(subscriptionCheck.reason || 'Tu suscripción no se encuentra activa para crear tickets mediante IA.');
+                error.status = 403;
+                error.code = 'SUBSCRIPTION_INACTIVE';
+                throw error;
+            }
+
             const workspaceId = await this.resolveWorkspaceIdForUser(jwtUserId);
             return {
                 userId: jwtUserId,
                 workspaceId,
-                source: 'jwt'
+                source: 'jwt',
+                user: subscriptionCheck.user
             };
         }
 
+        // MODO DEMO: Solo si está explícitamente habilitado
         if (!demoModeEnabled) {
-            const error = new Error('Ruta disponible con JWT o con AI_DEMO_MODE=true');
+            const error = new Error('Se requiere autenticación o habilitar modo demostración (AI_DEMO_MODE=true)');
             error.status = 403;
             throw error;
         }
 
         if (!demoUserId || !demoWorkspaceId) {
-            const error = new Error('AI_DEMO_USER_ID o AI_DEMO_WORKSPACE_ID no esta configurado');
+            const error = new Error('Variables de demostración no configuradas correctamente (AI_DEMO_USER_ID o AI_DEMO_WORKSPACE_ID)');
             error.status = 500;
             throw error;
         }
 
         if (!mongoose.Types.ObjectId.isValid(demoUserId) || !mongoose.Types.ObjectId.isValid(demoWorkspaceId)) {
-            const error = new Error('AI_DEMO_USER_ID o AI_DEMO_WORKSPACE_ID tiene formato invalido');
+            const error = new Error('Variables de demostración con formato inválido (ObjectId incorrecto)');
             error.status = 500;
             throw error;
         }
 
         await this.assertUserInWorkspace(demoUserId, demoWorkspaceId);
+
+        console.warn(`⚠️  Ticket creado en MODO DEMO (AI_DEMO_MODE=true). Usuario: ${demoUserId}, Workspace: ${demoWorkspaceId}`);
 
         return {
             userId: demoUserId,
