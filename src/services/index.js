@@ -1,6 +1,13 @@
 const BaseService = require('./base.service');
 
 module.exports = {
+    AIService: require('./ai.service'),
+    AILogsService: require('./ai-logs.service'),
+    AgentMemoryService: require('./agent-memory.service'),
+    TicketsFromAIService: require('./tickets-from-ai.service'),
+    InventoryService: require('./inventory.service'),
+    EmailService: require('./email.service'),
+    SubscriptionValidationService: require('./subscription-validation.service'),
     EstadoTicketsService: new BaseService(require('../models/estado_tickets.model')),
     EstadoOrdenService: new BaseService(require('../models/estado_orden.model')),
     TicketsService: new BaseService(require('../models/tickets.model')),
