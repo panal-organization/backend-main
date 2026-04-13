@@ -161,29 +161,85 @@ jobs:
           docker save panal-backend:${{ github.sha }} -o panal-backend-image.tar
           docker run --rm -v "${{ github.workspace }}:/workspace" aquasec/trivy:0.53.0 image --input /workspace/panal-backend-image.tar --severity HIGH,CRITICAL --exit-code 0
 
+      # CI/CD - Hygiene: limpiar residuos de ejecuciones anteriores en runner self-hosted.
+      - name: Cleanup previous stack state
+        shell: powershell
+        run: |
+          docker compose down --remove-orphans
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning "docker compose down returned non-zero. Continuing."
+          }
+
       # CI/CD - Deploy stage local: levantar stack completo de observabilidad.
       - name: Deploy Docker Compose stack
         shell: powershell
         run: docker compose up -d --build
 
+      # CI/CD - Readiness gate: esperar a que el contenedor backend este healthy.
+      - name: Wait backend container health
+        shell: powershell
+        run: |
+          $maxChecks = 60
+          $healthy = $false
+
+          for ($i = 1; $i -le $maxChecks; $i++) {
+            $status = docker inspect panal-backend --format "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}" 2>$null
+            if (-not $status) {
+              Write-Output "Container panal-backend not found yet ($i/$maxChecks)"
+            } else {
+              Write-Output "panal-backend status: $status ($i/$maxChecks)"
+              if ($status -eq 'healthy' -or $status -eq 'running') {
+                $healthy = $true
+                break
+              }
+            }
+
+            Start-Sleep -Seconds 3
+          }
+
+          if (-not $healthy) {
+            Write-Output "Container did not reach healthy/running state in time."
+            Write-Output "===== docker compose ps ====="
+            docker compose ps
+            Write-Output "===== backend logs (tail 200) ====="
+            docker logs --tail 200 panal-backend
+            throw "Backend container readiness failed"
+          }
+
       # CI/CD - Health gate: backend debe responder en /health.
       - name: Backend health check (/health)
         shell: powershell
         run: |
-          $maxRetries = 30
+          $maxRetries = 60
+          $isHealthy = $false
+
           for ($i = 1; $i -le $maxRetries; $i++) {
             try {
               $r = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/health -TimeoutSec 5
               if ($r.StatusCode -eq 200) {
                 Write-Output "Health check OK"
-                exit 0
+                $isHealthy = $true
+                break
               }
             } catch {
               Write-Output "Health check retry $i/$maxRetries"
             }
-            Start-Sleep -Seconds 2
+            Start-Sleep -Seconds 3
           }
-          throw "Health check failed after retries"
+
+          if (-not $isHealthy) {
+            Write-Output "Backend health check failed. Collecting diagnostics..."
+            Write-Output "===== docker compose ps ====="
+            docker compose ps
+
+            Write-Output "===== docker ps -a ====="
+            docker ps -a
+
+            Write-Output "===== backend logs (tail 200) ====="
+            docker logs --tail 200 panal-backend
+
+            throw "Health check failed after retries"
+          }
 
       # CI/CD - Observability validation: usa script existente del proyecto.
       # Nota: no depende del frontend demo y no falla por AI local ausente.
