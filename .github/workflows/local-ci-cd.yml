@@ -35,7 +35,7 @@ jobs:
 
       # CI/CD - Build prep: garantizar .env minimo para stack local.
       - name: Ensure .env exists for local runner
-        shell: pwsh
+        shell: powershell
         run: |
           if (-not (Test-Path .env)) {
             $envLines = @(
@@ -71,12 +71,12 @@ jobs:
 
       # CI/CD - Build stage: instalar dependencias.
       - name: Install dependencies
-        shell: pwsh
+        shell: powershell
         run: npm install
 
       # CI/CD - Quality gate (opcional): lint solo si existe script lint.
       - name: Run lint if present
-        shell: pwsh
+        shell: powershell
         run: |
           $pkg = Get-Content package.json -Raw | ConvertFrom-Json
           if ($pkg.scripts.PSObject.Properties.Name -contains 'lint') {
@@ -87,7 +87,7 @@ jobs:
 
       # CI/CD - Quality gate (opcional): test solo si existe script test real.
       - name: Run tests if present
-        shell: pwsh
+        shell: powershell
         run: |
           $pkg = Get-Content package.json -Raw | ConvertFrom-Json
           $hasTest = $pkg.scripts.PSObject.Properties.Name -contains 'test'
@@ -100,37 +100,37 @@ jobs:
 
       # CI/CD - Static syntax check del backend.
       - name: Basic backend syntax validation
-        shell: pwsh
+        shell: powershell
         run: |
           node -c index.js
           node -c src/app.js
 
       # CI/CD - Security scan (filesystem) con Trivy.
       - name: Trivy filesystem scan
-        shell: pwsh
+        shell: powershell
         run: |
           docker run --rm -v "${{ github.workspace }}:/workspace" aquasec/trivy:0.53.0 fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 0 /workspace
 
       # CI/CD - Build stage: construir imagen Docker del backend.
       - name: Build Docker image
-        shell: pwsh
+        shell: powershell
         run: docker build -t panal-backend:${{ github.sha }} .
 
       # CI/CD - Security scan (image) con Trivy.
       - name: Trivy image scan
-        shell: pwsh
+        shell: powershell
         run: |
           docker save panal-backend:${{ github.sha }} -o panal-backend-image.tar
           docker run --rm -v "${{ github.workspace }}:/workspace" aquasec/trivy:0.53.0 image --input /workspace/panal-backend-image.tar --severity HIGH,CRITICAL --exit-code 0
 
       # CI/CD - Deploy stage local: levantar stack completo de observabilidad.
       - name: Deploy Docker Compose stack
-        shell: pwsh
+        shell: powershell
         run: docker compose up -d --build
 
       # CI/CD - Health gate: backend debe responder en /health.
       - name: Backend health check (/health)
-        shell: pwsh
+        shell: powershell
         run: |
           $maxRetries = 30
           for ($i = 1; $i -le $maxRetries; $i++) {
@@ -150,7 +150,7 @@ jobs:
       # CI/CD - Observability validation: usa script existente del proyecto.
       # Nota: no depende del frontend demo y no falla por AI local ausente.
       - name: Run devops extended check
-        shell: pwsh
+        shell: powershell
         run: powershell -NoProfile -File scripts/devops-demo-check.ps1 -SkipBuild
 
   verify-stack:
@@ -162,7 +162,7 @@ jobs:
     steps:
       # Este job tambien corre sobre el runner local.
       - name: Verify backend /health endpoint
-        shell: pwsh
+        shell: powershell
         run: |
           $r = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/health -TimeoutSec 8
           if ($r.StatusCode -ne 200) {
@@ -171,7 +171,7 @@ jobs:
           Write-Output "/health OK"
 
       - name: Verify backend /metrics endpoint
-        shell: pwsh
+        shell: powershell
         run: |
           $r = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/metrics -TimeoutSec 8
           if ($r.StatusCode -ne 200) {
@@ -181,3 +181,4 @@ jobs:
             throw "/metrics response does not contain panal_app_up"
           }
           Write-Output "/metrics OK"
+
