@@ -28,20 +28,21 @@ class BaseService {
 
             if (value === undefined || value === '') return;
 
-            //Boolean
+            // Boolean conversion
             if (value === 'true') {
                 value = true;
                 mongoFilters[key] = value;
                 return;
             }
+
             if (value === 'false') {
                 value = false;
                 mongoFilters[key] = value;
                 return;
             }
 
-            //Number
-            if (!isNaN(value) && typeof value === 'string' && value.trim() !== '') {
+            // Number conversion (ensure value is string before trim)
+            if (typeof value === 'string' && value.trim() !== '' && !isNaN(value)) {
                 value = Number(value);
                 mongoFilters[key] = value;
                 return;
