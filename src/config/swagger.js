@@ -1099,6 +1099,201 @@ paths['/api/ai/agent/plan'] = {
     }
 };
 
+paths['/api/ai/agent/continue'] = {
+    post: {
+        tags: ['AI'],
+        summary: 'AI Agent Continue - Continue a previously confirmed plan',
+        description: 'Continues an execution plan previously created by /api/ai/agent/plan using its ai_log_id. This endpoint resumes pending or confirmation-required steps and may complete ticket creation or stop again if another critical confirmation is needed.',
+        security: [{ BearerAuth: [] }, {}],
+        requestBody: {
+            required: true,
+            content: {
+                'application/json': {
+                    schema: {
+                        type: 'object',
+                        properties: {
+                            ai_log_id: {
+                                type: 'string',
+                                description: 'ID del plan generado previamente por /api/ai/agent/plan'
+                            }
+                        },
+                        required: ['ai_log_id']
+                    },
+                    examples: {
+                        continuePlan: {
+                            summary: 'Continuar un plan ya generado',
+                            value: {
+                                ai_log_id: '69c0b62a6658a029e404c216'
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        responses: {
+            200: {
+                description: 'Plan continued successfully or no pending steps remained',
+                content: {
+                    'application/json': {
+                        schema: {
+                            type: 'object',
+                            properties: {
+                                ai_log_id: { type: 'string' },
+                                session_id: {
+                                    type: 'string',
+                                    nullable: true,
+                                    description: 'ID opcional de sesion conversacional del agente'
+                                },
+                                intent: {
+                                    type: 'string',
+                                    enum: ['draft', 'classify', 'summary', 'create_ticket']
+                                },
+                                confidence: { type: 'number', format: 'float' },
+                                message: { type: 'string' },
+                                requires_confirmation: { type: 'boolean' },
+                                plan: {
+                                    type: 'array',
+                                    items: {
+                                        type: 'object',
+                                        properties: {
+                                            tool: { type: 'string' },
+                                            status: {
+                                                type: 'string',
+                                                enum: ['ready', 'pending', 'running', 'completed', 'requires_confirmation', 'skipped']
+                                            }
+                                        }
+                                    }
+                                },
+                                steps: {
+                                    type: 'array',
+                                    items: {
+                                        type: 'object',
+                                        properties: {
+                                            tool: { type: 'string' },
+                                            status: {
+                                                type: 'string',
+                                                enum: ['ready', 'pending', 'running', 'completed', 'requires_confirmation', 'skipped']
+                                            }
+                                        }
+                                    }
+                                },
+                                draft_preview: {
+                                    type: 'object',
+                                    properties: {
+                                        titulo: { type: 'string' },
+                                        descripcion: { type: 'string' },
+                                        prioridad: { type: 'string' },
+                                        categoria: { type: 'string' }
+                                    }
+                                },
+                                summary_preview: {
+                                    type: 'object',
+                                    properties: {
+                                        resumen: { type: 'string' }
+                                    }
+                                },
+                                classify_preview: {
+                                    type: 'object',
+                                    properties: {
+                                        prioridad: { type: 'string' },
+                                        categoria: { type: 'string' },
+                                        justificacion: { type: 'string' },
+                                        confidence: { type: 'number', format: 'float' }
+                                    }
+                                },
+                                execution_result: {
+                                    type: 'object',
+                                    description: 'Resultado final de ejecución, por ejemplo el ticket creado'
+                                }
+                            }
+                        },
+                        examples: {
+                            completedPlan: {
+                                summary: 'Plan continuado y completado',
+                                value: {
+                                    ai_log_id: '69c0b62a6658a029e404c216',
+                                    session_id: 'session_demo_123',
+                                    intent: 'create_ticket',
+                                    confidence: 1,
+                                    message: 'Plan continuado y completado correctamente.',
+                                    requires_confirmation: false,
+                                    plan: [
+                                        { tool: 'draft', status: 'completed' },
+                                        { tool: 'create_ticket_from_draft', status: 'completed' }
+                                    ],
+                                    steps: [
+                                        { tool: 'draft', status: 'completed' },
+                                        { tool: 'create_ticket_from_draft', status: 'completed' }
+                                    ],
+                                    draft_preview: {
+                                        titulo: 'Scanner de almacén no enciende',
+                                        descripcion: 'El scanner de almacén no ha podido ser encendido desde esta mañana.',
+                                        prioridad: 'ALTA',
+                                        categoria: 'SOPORTE'
+                                    },
+                                    execution_result: {
+                                        ticket_id: '69c0b8ac6658a029e404c250'
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            400: {
+                description: 'Bad request - ai_log_id missing or plan invalid',
+                content: {
+                    'application/json': {
+                        schema: { $ref: '#/components/schemas/AI_ERROR_RESPONSE' },
+                        examples: {
+                            missingLogId: {
+                                value: { message: 'El campo ai_log_id es requerido' }
+                            },
+                            invalidPlan: {
+                                value: { message: 'El plan no tiene pasos para continuar' }
+                            }
+                        }
+                    }
+                }
+            },
+            403: {
+                description: 'Forbidden - Current user cannot continue this plan',
+                content: {
+                    'application/json': {
+                        schema: { $ref: '#/components/schemas/AI_ERROR_RESPONSE' },
+                        examples: {
+                            notAllowed: {
+                                value: { message: 'No autorizado para continuar este plan' }
+                            }
+                        }
+                    }
+                }
+            },
+            404: {
+                description: 'Plan not found',
+                content: {
+                    'application/json': {
+                        schema: { $ref: '#/components/schemas/AI_ERROR_RESPONSE' },
+                        examples: {
+                            notFound: {
+                                value: { message: 'No se encontró el plan para continuar' }
+                            }
+                        }
+                    }
+                }
+            },
+            500: {
+                description: 'Server or execution error',
+                content: {
+                    'application/json': {
+                        schema: { $ref: '#/components/schemas/AI_ERROR_RESPONSE' }
+                    }
+                }
+            }
+        }
+    }
+};
+
 paths['/api/tickets/from-ai-draft'] = {
     post: {
         tags: ['AI'],
