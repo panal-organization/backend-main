@@ -58,9 +58,10 @@ class BaseService {
             mongoFilters[key] = value;
         });
 
-        // Excluir documentos eliminados por defecto (soft delete)
-        // El cliente puede hacer ?include_deleted=true para verlos
-        if (!includeDeleted && !mongoFilters.hasOwnProperty('is_deleted')) {
+        // Excluir documentos eliminados por defecto (soft delete) solo
+        // para modelos que realmente implementan el campo is_deleted.
+        const supportsSoftDelete = Boolean(this.model?.schema?.path('is_deleted'));
+        if (supportsSoftDelete && !includeDeleted && !mongoFilters.hasOwnProperty('is_deleted')) {
             mongoFilters.is_deleted = false;
         }
 
