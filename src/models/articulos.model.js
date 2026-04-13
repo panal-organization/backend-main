@@ -33,7 +33,6 @@ const ArticuloSchema = new Schema({
     versionKey: false
 });
 
-// Recuenta los artículos activos de un almacén y actualiza su campo "registros"
 const updateAlmacenCount = async (almacen_id) => {
     if (!almacen_id) return;
     try {
