@@ -22,7 +22,6 @@ const ArticuloSchema = new Schema({
                 if (value < 0) {
                     return false;
                 }
-
                 return value >= (this.stock_minimo ?? 0);
             },
             message: 'stock_maximo debe ser mayor o igual a stock_minimo'
