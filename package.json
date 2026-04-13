@@ -5,7 +5,13 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node index.js"
+    "start": "node index.js",
+    "devops:run-all": "powershell -ExecutionPolicy Bypass -File scripts/run-all-devops.ps1",
+    "devops:up": "docker compose up -d --build",
+    "devops:down": "docker compose down",
+    "devops:logs": "docker compose logs -f backend",
+    "log:summary": "node scripts/log-summary.js",
+    "log:email": "node scripts/send-summary-email.js"
   },
   "keywords": [],
   "author": "",
