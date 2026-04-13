@@ -1,5 +1,8 @@
----
+﻿---
 name: Local CI/CD (Self-hosted)
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 on:
   # Permite correr manualmente el pipeline desde GitHub UI.
@@ -114,7 +117,32 @@ jobs:
       # CI/CD - Build stage: construir imagen Docker del backend.
       - name: Build Docker image
         shell: powershell
-        run: docker build -t panal-backend:${{ github.sha }} .
+        run: |
+          $imageTag = "panal-backend:${{ github.sha }}"
+
+          Write-Output "Docker version:"
+          docker version
+
+          Write-Output "Docker system usage before build:"
+          docker system df
+
+          $maxRetries = 2
+          for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+            Write-Output "Docker build attempt $attempt/$maxRetries"
+            docker build --progress=plain -t $imageTag .
+            if ($LASTEXITCODE -eq 0) {
+              Write-Output "Docker build OK"
+              exit 0
+            }
+
+            Write-Warning "Docker build failed in attempt $attempt"
+            if ($attempt -lt $maxRetries) {
+              Write-Output "Retrying build in 5 seconds..."
+              Start-Sleep -Seconds 5
+            }
+          }
+
+          throw "Docker build failed after retries"
 
       # CI/CD - Security scan (image) con Trivy.
       - name: Trivy image scan
