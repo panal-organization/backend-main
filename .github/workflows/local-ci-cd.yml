@@ -30,11 +30,21 @@ jobs:
   local-devops-pipeline:
     # Todo se ejecuta en tu runner local de Windows.
     runs-on: [self-hosted, windows, panal]
+    env:
+      DOCKER_CONFIG: ${{ github.workspace }}/.docker-ci
 
     steps:
       # CI/CD - Source stage: clonar codigo del repo.
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # CI/CD - Docker auth isolation: evita usar cred helpers ligados a sesion de Windows.
+      - name: Prepare isolated Docker config
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Path $env:DOCKER_CONFIG -Force | Out-Null
+          '{"auths":{"https://index.docker.io/v1/":{}}}' | Set-Content -Path (Join-Path $env:DOCKER_CONFIG 'config.json') -Encoding ascii
+          Write-Output "Using DOCKER_CONFIG=$env:DOCKER_CONFIG"
 
       # CI/CD - Build prep: garantizar .env minimo para stack local.
       - name: Ensure .env exists for local runner
