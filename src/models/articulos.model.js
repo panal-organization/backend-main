@@ -30,7 +30,6 @@ const ArticuloSchema = new Schema({
         }
     },
     alerta_activa: { type: Boolean, default: false }
-    estatus: { type: Boolean, default: true }
 }, {
     timestamps: true,
     versionKey: false
