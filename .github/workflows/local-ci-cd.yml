@@ -275,4 +275,3 @@ jobs:
             throw "/metrics response does not contain panal_app_up"
           }
           Write-Output "/metrics OK"
-
