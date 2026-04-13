@@ -19,7 +19,6 @@ const ArticuloSchema = new Schema({
                 if (value === null || value === undefined) {
                     return true;
                 }
-
                 if (value < 0) {
                     return false;
                 }
