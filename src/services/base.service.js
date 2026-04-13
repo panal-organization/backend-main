@@ -7,38 +7,62 @@ class BaseService {
 
     async getAll(filters = {}) {
         let populateFields = [];
+        let includeDeleted = false;
+
         if (filters.populate) {
             populateFields = filters.populate.split(',').map(p => p.trim());
             delete filters.populate;
         }
 
+        if (filters.include_deleted === 'true') {
+            includeDeleted = true;
+            delete filters.include_deleted;
+        }
+
         const mongoFilters = {};
 
         Object.keys(filters).forEach(key => {
-            if (key === 'populate') return; // Ensure it's not included in filters
+            if (key === 'populate') return;
 
             let value = filters[key];
 
             if (value === undefined || value === '') return;
 
-            //Boolean conversion
+            // Boolean conversion
             if (value === 'true') {
                 value = true;
-            } else if (value === 'false') {
-                value = false;
+                mongoFilters[key] = value;
+                return;
             }
-            //Number conversion (ensure value is string before trim)
-            else if (typeof value === 'string' && value.trim() !== '' && !isNaN(value)) {
+
+            if (value === 'false') {
+                value = false;
+                mongoFilters[key] = value;
+                return;
+            }
+
+            // Number conversion (ensure value is string before trim)
+            if (typeof value === 'string' && value.trim() !== '' && !isNaN(value)) {
                 value = Number(value);
+                mongoFilters[key] = value;
+                return;
             }
 
             //ObjectId
-            else if (typeof value === 'string' && mongoose.Types.ObjectId.isValid(value)) {
+            if (typeof value === 'string' && mongoose.Types.ObjectId.isValid(value)) {
                 value = new mongoose.Types.ObjectId(value);
+                mongoFilters[key] = value;
+                return;
             }
 
             mongoFilters[key] = value;
         });
+
+        // Excluir documentos eliminados por defecto (soft delete)
+        // El cliente puede hacer ?include_deleted=true para verlos
+        if (!includeDeleted && !mongoFilters.hasOwnProperty('is_deleted')) {
+            mongoFilters.is_deleted = false;
+        }
 
         const query = this.model.find(mongoFilters);
         populateFields.forEach(field => query.populate(field));

@@ -19,24 +19,20 @@ const ArticuloSchema = new Schema({
                 if (value === null || value === undefined) {
                     return true;
                 }
-
                 if (value < 0) {
                     return false;
                 }
-
                 return value >= (this.stock_minimo ?? 0);
             },
             message: 'stock_maximo debe ser mayor o igual a stock_minimo'
         }
     },
     alerta_activa: { type: Boolean, default: false }
-    estatus: { type: Boolean, default: true }
 }, {
     timestamps: true,
     versionKey: false
 });
 
-// Recuenta los artículos activos de un almacén y actualiza su campo "registros"
 const updateAlmacenCount = async (almacen_id) => {
     if (!almacen_id) return;
     try {
