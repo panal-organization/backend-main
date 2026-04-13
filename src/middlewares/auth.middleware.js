@@ -1,8 +1,7 @@
 const jwt = require('jsonwebtoken');
-const fs = require('fs');
-const path = require('path');
+const { getJwtKeys } = require('../config/jwt-keys');
 
-const PUB_KEY = fs.readFileSync(path.join(__dirname, '../config/id_rsa_pub.pem'), 'utf8');
+const { publicKey: PUB_KEY } = getJwtKeys();
 
 module.exports = (req, res, next) => {
     // Check for authorization header

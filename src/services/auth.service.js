@@ -1,13 +1,11 @@
 const jwt = require('jsonwebtoken');
-const fs = require('fs');
-const path = require('path');
 const bcrypt = require('bcryptjs');
 const Usuarios = require('../models/usuarios.model');
 const Workspaces = require('../models/workspaces.model');
 const WorkspacesUsuarios = require('../models/workspaces_usuarios.model');
+const { getJwtKeys } = require('../config/jwt-keys');
 
-const PRIV_KEY = fs.readFileSync(path.join(__dirname, '../config/id_rsa_priv.pem'), 'utf8');
-const PUB_KEY = fs.readFileSync(path.join(__dirname, '../config/id_rsa_pub.pem'), 'utf8');
+const { privateKey: PRIV_KEY } = getJwtKeys();
 
 class AuthService {
     async signUp(userData) {

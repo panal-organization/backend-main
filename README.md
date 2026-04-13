@@ -82,6 +82,66 @@ Credenciales por defecto de Grafana:
 - Usuario: `admin`
 - Password: `admin`
 
+## Acceso remoto para pruebas (Cloudflare Tunnel)
+### Que es
+Cloudflare Tunnel permite exponer temporalmente tu backend local a Internet sin abrir puertos manualmente ni configurar DNS.
+
+En este proyecto se usa en modo simple con URL temporal de `trycloudflare.com`, ideal para pruebas rapidas entre companeros.
+
+### Requisitos
+- Tener el backend levantado en `http://localhost:3000`
+- Tener `cloudflared` instalado en Windows
+
+Instalacion recomendada:
+
+```powershell
+winget install Cloudflare.cloudflared
+```
+
+### Uso rapido
+Si tu backend ya esta arriba, ejecuta:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run-cloudflare-tunnel.ps1
+```
+
+Ese script ejecuta internamente:
+
+```powershell
+cloudflared tunnel --url http://localhost:3000
+```
+
+Si quieres levantar backend + tunnel en una sola corrida:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run-tunnel-and-backend.ps1
+```
+
+### Que compartir con tus companeros
+Comparte la URL base que genera Cloudflare, por ejemplo:
+
+```text
+https://random-name.trycloudflare.com
+```
+
+Y estos endpoints utiles:
+- `https://random-name.trycloudflare.com/api-docs`
+- `https://random-name.trycloudflare.com/api/ai/agent/plan`
+- `https://random-name.trycloudflare.com/api/ai/agent/continue`
+
+### Advertencias importantes
+- La URL cambia cada vez que levantas un nuevo tunnel
+- Solo funciona mientras tu PC este encendida, con Internet y con el backend corriendo
+- Si cierras `cloudflared`, la URL deja de funcionar
+
+### Que no debes exponer
+Para pruebas entre companeros, no expongas con este metodo:
+- Prometheus
+- Loki
+- cAdvisor
+
+Exponer solo el backend reduce superficie de riesgo y evita compartir herramientas internas de observabilidad.
+
 ## 7. Self-Hosted Runner (CI/CD)
 ### Que es
 Es un agente de GitHub Actions instalado en tu maquina Windows. En lugar de ejecutar jobs en infraestructura de GitHub, los ejecuta localmente en tu equipo.

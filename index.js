@@ -12,7 +12,6 @@ process.on('unhandledRejection', (reason) => {
         error: logger.serializeError(reason instanceof Error ? reason : new Error(String(reason)))
     });
 });
-
 process.on('uncaughtException', (error) => {
     logger.error('uncaught_exception', {
         error: logger.serializeError(error)
